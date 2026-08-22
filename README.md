@@ -1,7 +1,8 @@
 # Dinamo — Animated Restaurant Website
 
 A bilingual (Bosnian/English), scroll-driven restaurant website for Dinamo in
-Orašje. Built with React, Next.js-compatible app routing, Vinext, Vite and CSS.
+Orašje. Built with React, Next.js and CSS, with an optional Vinext/Vite setup
+for Cloudflare-based previews.
 
 ## Features
 
@@ -65,13 +66,10 @@ git remote add origin YOUR_GITHUB_REPOSITORY_URL
 git push -u origin main
 ```
 
-4. Import the repository into a host that supports Cloudflare Workers/Vinext.
-5. Use `npm ci` as the install command and `npm run build` as the build
-   command.
-
-This checkout targets Cloudflare through Vinext. If you want to deploy it on
-Vercel as a standard Next.js project, convert the build scripts/configuration
-first rather than deploying this package unchanged.
+4. Import the repository into Vercel and leave the framework preset set to
+   **Next.js**.
+5. Use `npm ci` as the install command and `npm run build` as the build command.
+   Leave **Output Directory** blank so Vercel uses Next.js' `.next` directory.
 
 ## Business details
 
