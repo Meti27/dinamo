@@ -77,6 +77,7 @@ export default function Home() {
   const [scrolled, setScrolled] = useState(false);
   const [storyProgress, setStoryProgress] = useState(0);
   const storyRef = useRef<HTMLElement>(null);
+  const storyVideoRef = useRef<HTMLVideoElement>(null);
   const t = translations[lang];
 
   useEffect(() => {
@@ -91,6 +92,7 @@ export default function Home() {
 
   useEffect(() => {
     let ticking = false;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const onScroll = () => {
       setScrolled(window.scrollY > 40);
       if (!ticking) {
@@ -99,7 +101,12 @@ export default function Home() {
           if (section) {
             const rect = section.getBoundingClientRect();
             const distance = section.offsetHeight - window.innerHeight;
-            setStoryProgress(Math.max(0, Math.min(1, -rect.top / Math.max(1, distance))));
+            const progress = Math.max(0, Math.min(1, -rect.top / Math.max(1, distance)));
+            setStoryProgress(progress);
+            const video = storyVideoRef.current;
+            if (!reducedMotion.matches && video && Number.isFinite(video.duration)) {
+              video.currentTime = progress * video.duration;
+            }
           }
           ticking = false;
         });
@@ -107,23 +114,19 @@ export default function Home() {
       }
     };
     onScroll();
+    const video = storyVideoRef.current;
+    video?.addEventListener("loadedmetadata", onScroll);
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      video?.removeEventListener("loadedmetadata", onScroll);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
   }, []);
 
   const shown = category === "all" ? items : items.filter((item) => item.category === category);
   const menuWipe = Math.max(0, Math.min(1, (storyProgress - .92) / .08));
-  const explode = storyProgress < .14 ? 0 : storyProgress < .45 ? (storyProgress - .14) / .31 : storyProgress < .68 ? 1 : storyProgress < .88 ? 1 - (storyProgress - .68) / .2 : 0;
-  const assembledTop = [10, 25.6, 36.9, 45.6, 57.5, 65];
-  const explodedTop = [0, 16.5, 33, 49.5, 66.5, 83];
-  const explodedLeft = [50, 47, 52.5, 48.5, 52, 50];
-  const layerWidths = [70, 68.75, 62.5, 60, 57.5, 62.5];
-  const rotations = [-2.4, 1.8, -1.4, 1.2, -1.8, 2.2];
-  const layerImages = [
-    "/burger-layers/01-top-bun.webp", "/burger-layers/02-vegetables.webp",
-    "/burger-layers/03-cheddar.webp", "/burger-layers/04-patty.webp",
-    "/burger-layers/05-sauce-pickles.webp", "/burger-layers/06-bottom-bun.webp",
-  ];
 
   return (
     <main>
@@ -153,15 +156,12 @@ export default function Home() {
           <div className="story-title finish-title" style={{ opacity: Math.max(0, Math.min(1,(storyProgress-.73)*8, (1-storyProgress)*8)) }}>
             <p>{t.simple}</p><h2>{t.inPlace}</h2>
           </div>
-          <div className="story-halo" style={{ transform: `translate(-50%,-50%) scale(${.55+explode*.6})`, opacity: .2+explode*.45 }} />
-          <div className="story-burger" role="img" aria-label={t.burgerAria} style={{ transform: `translate(-50%,-50%) perspective(1000px) rotateY(${(storyProgress-.5)*5}deg) scale(${.94 + explode*.06}) translateY(${storyProgress>.9?(storyProgress-.9)*1050:0}px)`, opacity: storyProgress>.97?Math.max(0,(1-storyProgress)*34):1 }}>
-            {[0,1,2,3,4,5].map((slice) => {
-              const top = assembledTop[slice]+(explodedTop[slice]-assembledTop[slice])*explode;
-              const left = 50+(explodedLeft[slice]-50)*explode;
-              return <div className={`story-layer layer-${slice+1}`} key={slice} style={{ top: `${top}%`, left: `${left}%`, width: `${layerWidths[slice]}%`, zIndex: 6-slice, transform: `translate3d(-50%,0,${slice*8*explode}px) rotateZ(${rotations[slice]*explode}deg)` }}>
-                <img src={layerImages[slice]} alt="" draggable={false} fetchPriority="high" />
-              </div>;
-            })}
+          <div className="story-halo" />
+          <div className="story-burger" role="img" aria-label={t.burgerAria} style={{ transform: `translate(-50%,-50%) translateY(${storyProgress>.9?(storyProgress-.9)*1050:0}px)`, opacity: storyProgress>.97?Math.max(0,(1-storyProgress)*34):1 }}>
+            <video ref={storyVideoRef} className="story-video" muted playsInline preload="auto" poster="/dinamo-burger-scroll-poster.jpg" aria-hidden="true">
+              <source src="/dinamo-burger-scroll-premium.mp4" type="video/mp4" />
+            </video>
+            <img className="story-poster" src="/dinamo-burger-scroll-poster.jpg" alt="" aria-hidden="true" />
             {t.ingredientLabels.map((label,index) => {
               const reveal = Math.max(0,Math.min(1,(storyProgress-(.22+index*.035))*9, (.72-storyProgress)*8));
               return <div className={`ingredient-label label-${index+1}`} key={label[0]} style={{ opacity: reveal, transform: `translateY(-50%) translateX(${(1-reveal)*(index%2?18:-18)}px)` }}><span>0{index+1}</span><strong>{label[0]}</strong><p>{label[1]}</p></div>;
