@@ -2,24 +2,28 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import BurgerSequence from "./BurgerSequence";
+import { ASPECT } from "./burgerFrames";
+import { BEATS, frameForProgress, labelReveal, layerAnchor, menuWipe } from "./burgerStory";
+
 type Lang = "bs" | "en";
 type Category = "all" | "burgers" | "ice" | "drinks";
 
 const items = [
-  { category: "ice", name: { bs: "Vanilja", en: "Vanilla" }, price: "1.5 KM", image: "https://media.dodostatic.com/image/r:520x520/11ee39c30abc491caeecc3b0f4d0e323.avif" },
-  { category: "ice", name: { bs: "Nutella", en: "Nutella" }, price: "1.5 KM", image: "https://media.dodostatic.com/image/r:520x520/11ee39c32fd03cef8b345a2e103665cf.avif" },
-  { category: "ice", name: { bs: "Lješnjak", en: "Hazelnut" }, price: "1.5 KM", image: "https://media.dodostatic.com/image/r:520x520/11ee39c44eab7555b41b4262a84a0f1e.avif" },
-  { category: "ice", name: { bs: "Čokolada", en: "Chocolate" }, price: "1.5 KM", image: "https://media.dodostatic.com/image/r:520x520/11ee39c4736cc7fcaf59c4e53afeccfa.avif" },
-  { category: "ice", name: { bs: "Jagoda", en: "Strawberry" }, price: "1.5 KM", image: "https://media.dodostatic.com/image/r:520x520/11ee39c47388df29859254dd9b23869b.avif" },
-  { category: "ice", name: { bs: "Limun", en: "Lemon" }, price: "1.5 KM", image: "https://media.dodostatic.com/image/r:520x520/11ee39c4976d4413a152613afa01f3c3.avif" },
-  { category: "burgers", name: { bs: "Hamburger", en: "Hamburger" }, price: "5 KM", image: "https://media.dodostatic.com/image/r:520x520/11ee39c526d7d87dbc4ba6f70e5b529b.avif" },
-  { category: "burgers", name: { bs: "Cheeseburger", en: "Cheeseburger" }, price: "6 KM", image: "https://media.dodostatic.com/image/r:520x520/11ee39c54b07d928a1dd3d4cbc1849eb.avif" },
-  { category: "burgers", name: { bs: "Double hamburger", en: "Double hamburger" }, price: "9 KM", image: "https://media.dodostatic.com/image/r:520x520/11ee39c56f1a4fd0a53ece8fac3fca51.avif" },
-  { category: "drinks", name: { bs: "Limunada", en: "Lemonade" }, price: "1.5 KM", note: "200 ml", image: "https://media.dodostatic.com/image/r:520x520/11ee3d1d18828ca18e6ce61ad4e3b096.avif" },
-  { category: "drinks", name: { bs: "Cola", en: "Cola" }, price: "2.5 KM", note: "250 ml", image: "https://media.dodostatic.com/image/r:520x520/11ee3d0c50023841a02aebfb64854d65.avif" },
-  { category: "drinks", name: { bs: "Fanta", en: "Fanta" }, price: "2.5 KM", note: "250 ml", image: "https://media.dodostatic.com/image/r:520x520/11ee3d0c5011d13e917daee85c82b054.avif" },
-  { category: "drinks", name: { bs: "Voda", en: "Water" }, price: "2 KM", note: "500 ml", image: "https://media.dodostatic.com/image/r:520x520/11ee3d0c73f50a4a924f4e5d1e4c5220.avif" },
-  { category: "drinks", name: { bs: "Ice tea", en: "Iced tea" }, price: "2.5 KM", image: "https://media.dodostatic.com/image/r:520x520/0198286c615871deac4f9ef8dc400643.avif" },
+  { category: "ice", name: { bs: "Vanilja", en: "Vanilla" }, price: "1.5 KM", image: "/menu/ice-vanilja.avif" },
+  { category: "ice", name: { bs: "Nutella", en: "Nutella" }, price: "1.5 KM", image: "/menu/ice-nutella.avif" },
+  { category: "ice", name: { bs: "Lješnjak", en: "Hazelnut" }, price: "1.5 KM", image: "/menu/ice-ljesnjak.avif" },
+  { category: "ice", name: { bs: "Čokolada", en: "Chocolate" }, price: "1.5 KM", image: "/menu/ice-cokolada.avif" },
+  { category: "ice", name: { bs: "Jagoda", en: "Strawberry" }, price: "1.5 KM", image: "/menu/ice-jagoda.avif" },
+  { category: "ice", name: { bs: "Limun", en: "Lemon" }, price: "1.5 KM", image: "/menu/ice-limun.avif" },
+  { category: "burgers", name: { bs: "Hamburger", en: "Hamburger" }, price: "5 KM", image: "/menu/burgers-hamburger.avif" },
+  { category: "burgers", name: { bs: "Cheeseburger", en: "Cheeseburger" }, price: "6 KM", image: "/menu/burgers-cheeseburger.avif" },
+  { category: "burgers", name: { bs: "Double hamburger", en: "Double hamburger" }, price: "9 KM", image: "/menu/burgers-double-hamburger.avif" },
+  { category: "drinks", name: { bs: "Limunada", en: "Lemonade" }, price: "1.5 KM", note: "200 ml", image: "/menu/drinks-limunada.avif" },
+  { category: "drinks", name: { bs: "Cola", en: "Cola" }, price: "2.5 KM", note: "250 ml", image: "/menu/drinks-cola.avif" },
+  { category: "drinks", name: { bs: "Fanta", en: "Fanta" }, price: "2.5 KM", note: "250 ml", image: "/menu/drinks-fanta.avif" },
+  { category: "drinks", name: { bs: "Voda", en: "Water" }, price: "2 KM", note: "500 ml", image: "/menu/drinks-voda.avif" },
+  { category: "drinks", name: { bs: "Ice tea", en: "Iced tea" }, price: "2.5 KM", image: "/menu/drinks-ice-tea.avif" },
 ] as const;
 
 const categoryKeys: Category[] = ["all", "burgers", "ice", "drinks"];
@@ -77,7 +81,6 @@ export default function Home() {
   const [scrolled, setScrolled] = useState(false);
   const [storyProgress, setStoryProgress] = useState(0);
   const storyRef = useRef<HTMLElement>(null);
-  const storyVideoRef = useRef<HTMLVideoElement>(null);
   const t = translations[lang];
 
   useEffect(() => {
@@ -92,7 +95,6 @@ export default function Home() {
 
   useEffect(() => {
     let ticking = false;
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const onScroll = () => {
       setScrolled(window.scrollY > 40);
       if (!ticking) {
@@ -101,12 +103,7 @@ export default function Home() {
           if (section) {
             const rect = section.getBoundingClientRect();
             const distance = section.offsetHeight - window.innerHeight;
-            const progress = Math.max(0, Math.min(1, -rect.top / Math.max(1, distance)));
-            setStoryProgress(progress);
-            const video = storyVideoRef.current;
-            if (!reducedMotion.matches && video && Number.isFinite(video.duration)) {
-              video.currentTime = progress * video.duration;
-            }
+            setStoryProgress(Math.max(0, Math.min(1, -rect.top / Math.max(1, distance))));
           }
           ticking = false;
         });
@@ -114,19 +111,17 @@ export default function Home() {
       }
     };
     onScroll();
-    const video = storyVideoRef.current;
-    video?.addEventListener("loadedmetadata", onScroll);
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll);
     return () => {
-      video?.removeEventListener("loadedmetadata", onScroll);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
     };
   }, []);
 
   const shown = category === "all" ? items : items.filter((item) => item.category === category);
-  const menuWipe = Math.max(0, Math.min(1, (storyProgress - .92) / .08));
+  const frame = frameForProgress(storyProgress);
+  const wipe = menuWipe(storyProgress);
 
   return (
     <main>
@@ -145,32 +140,48 @@ export default function Home() {
       <section className="scroll-story" id="top" ref={storyRef}>
         <div className="story-sticky">
           <div className="story-grid" aria-hidden="true" />
-          <header className="story-intro" style={{ opacity: Math.max(0, 1-storyProgress*7), transform: `translateY(${storyProgress*-90}px)` }}>
+          <header className="story-intro" style={{ opacity: Math.max(0, 1 - storyProgress / BEATS.introEnd), transform: `translateY(${storyProgress * -90}px)` }}>
             <p className="eyebrow"><span /> {t.open}</p>
             <h1>{t.headline[0]}<br />{t.headline[1]}</h1>
             <p>{t.intro}</p>
           </header>
-          <div className="story-title ingredients-title" style={{ opacity: Math.max(0, Math.min(1,(storyProgress-.2)*7, (.72-storyProgress)*7)) }}>
+          <div className="story-title ingredients-title" style={{ opacity: Math.max(0, Math.min(1, (storyProgress - .22) * 7, (BEATS.studyEnd + .02 - storyProgress) * 7)) }}>
             <p>{t.nothingHidden}</p><h2>{t.layerByLayer}</h2>
           </div>
-          <div className="story-title finish-title" style={{ opacity: Math.max(0, Math.min(1,(storyProgress-.73)*8, (1-storyProgress)*8)) }}>
+          <div className="story-title finish-title" style={{ opacity: Math.max(0, Math.min(1, (storyProgress - BEATS.studyEnd - .03) * 8, (BEATS.assembleEnd + .05 - storyProgress) * 8)) }}>
             <p>{t.simple}</p><h2>{t.inPlace}</h2>
           </div>
           <div className="story-halo" />
-          <div className="story-burger" role="img" aria-label={t.burgerAria} style={{ transform: `translate(-50%,-50%) translateY(${storyProgress>.9?(storyProgress-.9)*1050:0}px)`, opacity: storyProgress>.97?Math.max(0,(1-storyProgress)*34):1 }}>
-            <video ref={storyVideoRef} className="story-video" muted playsInline preload="auto" poster="/dinamo-burger-scroll-poster.jpg" aria-hidden="true">
-              <source src="/dinamo-burger-scroll-premium.mp4" type="video/mp4" />
-            </video>
-            <img className="story-poster" src="/dinamo-burger-scroll-poster.jpg" alt="" aria-hidden="true" />
-            {t.ingredientLabels.map((label,index) => {
-              const reveal = Math.max(0,Math.min(1,(storyProgress-(.22+index*.035))*9, (.72-storyProgress)*8));
-              return <div className={`ingredient-label label-${index+1}`} key={label[0]} style={{ opacity: reveal, transform: `translateY(-50%) translateX(${(1-reveal)*(index%2?18:-18)}px)` }}><span>0{index+1}</span><strong>{label[0]}</strong><p>{label[1]}</p></div>;
+          <div className="story-burger" style={{ "--burger-aspect": ASPECT } as React.CSSProperties}>
+            <BurgerSequence frame={frame} label={t.burgerAria} />
+            {t.ingredientLabels.map((label, index) => {
+              const reveal = labelReveal(storyProgress, index);
+              const at = layerAnchor(frame, index);
+              return (
+                <div
+                  className={`ingredient-label label-${index + 1}`}
+                  key={label[0]}
+                  style={{
+                    top: `${at.top * 100}%`,
+                    // the narrow layers sit well inside the box, so each rule is
+                    // anchored to its own layer's edge rather than the box's
+                    "--layer-left": `${at.left * 100}%`,
+                    "--layer-right": `${at.right * 100}%`,
+                    opacity: reveal,
+                    transform: `translateY(-50%) translateX(${(1 - reveal) * (index % 2 ? 18 : -18)}px)`,
+                  } as React.CSSProperties}
+                >
+                  <span>0{index + 1}</span><strong>{label[0]}</strong><p>{label[1]}</p>
+                </div>
+              );
             })}
           </div>
-          <div className="story-wipe" style={{ transform: `translateY(${(1-menuWipe)*100}%)` }}><span style={{ transform: `translateY(${(1-menuWipe)*80}px)`, opacity: menuWipe }}>{t.menu.toUpperCase()}</span></div>
-          <div className="story-progress"><span style={{ height: `${storyProgress*100}%` }} /></div>
-          <div className="story-phase"><strong>{storyProgress < .16 ? "01" : storyProgress < .69 ? "02" : "03"}</strong><span>/ 03</span></div>
-          <p className="story-step">{storyProgress < .16 ? t.scrollOpen : storyProgress < .68 ? t.ingredientsStep : storyProgress < .9 ? t.assembling : t.menuBelow}</p>
+          <div className="story-wipe" style={{ transform: `translateY(${(1 - wipe) * 100}%)` }}>
+            <span style={{ transform: `translateY(${(1 - wipe) * 70}px) scale(${.88 + wipe * .12})`, opacity: wipe }}>{t.menu.toUpperCase()}</span>
+          </div>
+          <div className="story-progress"><span style={{ height: `${storyProgress * 100}%` }} /></div>
+          <div className="story-phase"><strong>{storyProgress < BEATS.introEnd ? "01" : storyProgress < BEATS.studyEnd ? "02" : "03"}</strong><span>/ 03</span></div>
+          <p className="story-step">{storyProgress < BEATS.introEnd ? t.scrollOpen : storyProgress < BEATS.explodeEnd ? t.ingredientsStep : storyProgress < BEATS.assembleEnd ? t.assembling : t.menuBelow}</p>
         </div>
       </section>
 
@@ -184,7 +195,7 @@ export default function Home() {
           </div>
         </div>
         <div className="menu-grid">{shown.map((item,index) => <article className="menu-card" style={{ "--card-index": index } as React.CSSProperties} key={item.name.bs}>
-          <div className="card-image"><img src={item.image} alt={item.name[lang]} loading="lazy" /><span>{t.categories[item.category]}</span></div>
+          <div className="card-image"><img src={item.image} alt={item.name[lang]} width={520} height={520} loading="lazy" decoding="async" /><span>{t.categories[item.category]}</span></div>
           <div className="card-info"><div><h3>{item.name[lang]}</h3>{"note" in item && item.note && <p>{item.note}</p>}</div><strong>{item.price}</strong></div>
         </article>)}</div>
       </section>
