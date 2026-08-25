@@ -1,3 +1,39 @@
+### [2026-08-25] Reverted the snapped stops; continuous scroll with a speed limit
+
+**Changes:** The snapped-stop version read worse than what it replaced — the
+instant jumps made the scrollbar teleport and the phase counter tick, which feels
+broken even when the frames between are smoother. Reverted the snapping and went
+back to the animation following the scroll continuously, with a cap on how fast
+it can advance.
+
+- Removed CSS scroll-snap, the per-stop markers, and the wheel/touch/key handler
+  that took one gesture per stop. Scrolling is entirely native again.
+- The follower is exponential in *elapsed time* (`1 - exp(-rate * dt)`), so it is
+  frame-rate independent — the earlier per-frame-fraction version ran twice as
+  fast on a 120Hz display — and the per-frame movement is then clamped to
+  `MAX_STOPS_PER_SEC`. That is the "limit how hard you can scroll": a violent
+  flick no longer blasts through the story, it just keeps playing until it
+  catches up. Measured: slamming the scrollbar across the whole story takes
+  ~2.1s instead of arriving instantly; a small nudge is 90% resolved in ~0.20s,
+  so ordinary scrolling still feels attached rather than floaty.
+- `FOLLOW_RATE` (12) and `MAX_STOPS_PER_SEC` (2.4) at the top of
+  `app/ScrollStory.tsx` are the two tuning knobs. Brisk deliberate scrolling is
+  about 2 beats/sec, under the cap, so it is not clamped in normal use.
+
+The per-frame fixes from the previous commit are all kept, since none of them
+were about snapping: the story owning its own state instead of re-rendering the
+whole page, no drop-shadow filter over a canvas that repaints every frame, no
+opacity transition fighting per-frame inline opacity, and the denser reassembly.
+
+**Files:** `app/ScrollStory.tsx`, `app/globals.css`
+
+**TODOs:**
+- Pre-existing: `npm test` fails on the host-injected `codex-preview` assertion;
+  one lint error at `app/page.tsx:91`.
+- This repo has no deploy hook (no `.github/`, no `vercel.json`,
+  `.openai/hosting.json` has a null project id), so pushing does not update the
+  ChatGPT Sites deployment.
+
 ### [2026-08-25] Fixed what was actually making the scroll story glitch
 
 **Changes:** The previous commit snapped the story to five stops so the animation

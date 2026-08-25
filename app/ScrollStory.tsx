@@ -9,13 +9,19 @@ import {
   layerAnchor, layersTitle, menuWipe, stopForProgress, stopLabel, studioFade, wholeTitle,
 } from "./burgerStory";
 
-/** how long one stop-to-stop transition takes */
-const TRANSITION_MS = 650;
-/** ignore further gestures until a transition has essentially landed */
-const GESTURE_LOCK_MS = TRANSITION_MS + 60;
+/**
+ * How quickly the animation closes the gap to wherever the scroll is, per
+ * second. Higher feels more directly attached to the wheel, lower feels
+ * floatier.
+ */
+const FOLLOW_RATE = 12;
 
-const easeInOutCubic = (t: number) =>
-  t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+/**
+ * The speed limit, in stops per second. Scroll as hard as you like — the story
+ * will not advance faster than this, it just keeps playing until it catches up.
+ * This is what stops a violent flick from blasting through the whole thing.
+ */
+const MAX_STOPS_PER_SEC = 2.4;
 
 type Copy = {
   open: string;
@@ -71,42 +77,40 @@ export default function ScrollStory({ copy }: { copy: Copy }) {
   }, []);
 
   /**
-   * Scroll chooses a destination; this plays the animation to it.
+   * The animation follows the scroll rather than being driven frame-for-frame
+   * by it, and it has a speed limit.
    *
-   * The tween is driven by elapsed time, not by a per-frame fraction of the
-   * remaining gap. A gap-based follow runs twice as fast on a 120Hz display as
-   * on a 60Hz one, and spends its first frames lurching and its last crawling.
+   * Two things this fixes. Reading the scroll position straight into the frame
+   * index means a coarse or violent wheel jumps the burger; and closing a fixed
+   * fraction of the gap per frame runs twice as fast on a 120Hz display as on a
+   * 60Hz one. So the approach is exponential in *elapsed time*, then clamped so
+   * the story can never advance faster than MAX_STOPS_PER_SEC no matter how
+   * hard the scroll was.
    */
   useEffect(() => {
-    const current = () => {
-      const { from, to, startedAt } = tweenRef.current;
-      if (!startedAt) return to;
-      const t = Math.min(1, (performance.now() - startedAt) / TRANSITION_MS);
-      return from + (to - from) * easeInOutCubic(t);
-    };
+    const target = { at: 0 };
+    const shown = { at: 0 };
+    let raf = 0;
+    let last = 0;
 
-    const step = () => {
-      const tw = tweenRef.current;
-      const t = Math.min(1, (performance.now() - tw.startedAt) / TRANSITION_MS);
-      const value = tw.from + (tw.to - tw.from) * easeInOutCubic(t);
-      setStop(value);
-      if (t >= 1) {
-        tw.raf = 0;
-        tw.startedAt = 0;
+    const tick = (now: number) => {
+      const dt = last ? Math.min(0.064, (now - last) / 1000) : 1 / 60;
+      last = now;
+
+      const gap = target.at - shown.at;
+      if (Math.abs(gap) < 0.0004) {
+        shown.at = target.at;
+        setStop(target.at);
+        raf = 0;
+        last = 0;
         return;
       }
-      tw.raf = requestAnimationFrame(step);
-    };
 
-    const retarget = (to: number) => {
-      const tw = tweenRef.current;
-      if (tw.to === to && tw.startedAt) return;
-      // restart from wherever the animation actually is, so a second gesture
-      // mid-transition continues rather than jumping
-      tw.from = current();
-      tw.to = to;
-      tw.startedAt = performance.now();
-      if (!tw.raf) tw.raf = requestAnimationFrame(step);
+      const eased = gap * (1 - Math.exp(-FOLLOW_RATE * dt));
+      const cap = MAX_STOPS_PER_SEC * dt;
+      shown.at += Math.max(-cap, Math.min(cap, eased));
+      setStop(shown.at);
+      raf = requestAnimationFrame(tick);
     };
 
     const read = () => {
@@ -114,16 +118,18 @@ export default function ScrollStory({ copy }: { copy: Copy }) {
       if (!section) return;
       const rect = section.getBoundingClientRect();
       const distance = section.offsetHeight - window.innerHeight;
-      retarget(stopForProgress(-rect.top / Math.max(1, distance)));
+      target.at = stopForProgress(-rect.top / Math.max(1, distance));
+      if (!raf) raf = requestAnimationFrame(tick);
     };
 
-    // settle on the starting stop without animating into it
+    // start wherever the page already is, without animating into it
     const section = storyRef.current;
     if (section) {
       const rect = section.getBoundingClientRect();
       const distance = section.offsetHeight - window.innerHeight;
       const at = stopForProgress(-rect.top / Math.max(1, distance));
-      tweenRef.current = { from: at, to: at, startedAt: 0, raf: 0 };
+      target.at = at;
+      shown.at = at;
       setStop(at);
     }
 
@@ -132,84 +138,7 @@ export default function ScrollStory({ copy }: { copy: Copy }) {
     return () => {
       window.removeEventListener("scroll", read);
       window.removeEventListener("resize", read);
-      if (tweenRef.current.raf) cancelAnimationFrame(tweenRef.current.raf);
-      tweenRef.current.raf = 0;
-    };
-  }, []);
-
-  /**
-   * One gesture, one stop.
-   *
-   * The jump is deliberately instant. The stage is `position: sticky`, so
-   * moving the scroll inside the story changes nothing on screen — only the
-   * number the tween reads. Animating the scroll as well meant the tween was
-   * chasing a target the browser was still moving, and every hitch in that
-   * scroll animation (which also fights scroll-snap) landed in the burger.
-   */
-  useEffect(() => {
-    const section = storyRef.current;
-    if (!section) return;
-    let lastAt = 0;
-    let touchY = 0;
-
-    const filling = () => {
-      const r = section.getBoundingClientRect();
-      return r.top <= 1 && r.bottom >= window.innerHeight - 1;
-    };
-    const indexNow = () =>
-      Math.round((window.scrollY - section.offsetTop) / Math.max(1, window.innerHeight));
-
-    const go = (dir: number) => {
-      const next = indexNow() + dir;
-      if (next < 0 || next > LAST_STOP) return false; // let the page have it
-      // "instant", not "auto": auto defers to the element's scroll-behavior,
-      // which is `smooth` on <html> for the nav anchors — that would animate the
-      // scroll again and put us right back to a tween chasing a moving target.
-      window.scrollTo({ top: section.offsetTop + next * window.innerHeight, behavior: "instant" });
-      return true;
-    };
-
-    const take = (dir: number, e: Event) => {
-      const now = performance.now();
-      if (now - lastAt < GESTURE_LOCK_MS) {
-        e.preventDefault(); // swallow the tail of a flick so it moves one stop
-        return;
-      }
-      if (go(dir)) {
-        e.preventDefault();
-        lastAt = now;
-      }
-    };
-
-    const onWheel = (e: WheelEvent) => {
-      if (!filling() || Math.abs(e.deltaY) < 2) return;
-      take(e.deltaY > 0 ? 1 : -1, e);
-    };
-    const onTouchStart = (e: TouchEvent) => {
-      touchY = e.touches[0]?.clientY ?? 0;
-    };
-    const onTouchMove = (e: TouchEvent) => {
-      if (!filling()) return;
-      const dy = touchY - (e.touches[0]?.clientY ?? 0);
-      if (Math.abs(dy) < 24) return;
-      take(dy > 0 ? 1 : -1, e);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (!filling()) return;
-      const down = e.key === "ArrowDown" || e.key === "PageDown" || e.key === " ";
-      const up = e.key === "ArrowUp" || e.key === "PageUp";
-      if (down || up) take(down ? 1 : -1, e);
-    };
-
-    window.addEventListener("wheel", onWheel, { passive: false });
-    window.addEventListener("touchstart", onTouchStart, { passive: true });
-    window.addEventListener("touchmove", onTouchMove, { passive: false });
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("wheel", onWheel);
-      window.removeEventListener("touchstart", onTouchStart);
-      window.removeEventListener("touchmove", onTouchMove);
-      window.removeEventListener("keydown", onKey);
+      if (raf) cancelAnimationFrame(raf);
     };
   }, []);
 
@@ -230,11 +159,6 @@ export default function ScrollStory({ copy }: { copy: Copy }) {
 
   return (
     <section className="scroll-story" id="top" ref={storyRef}>
-      {/* One marker per stop. These are what the browser snaps to, so a
-          single gesture moves exactly one phase of the story. */}
-      <div className="story-stops" aria-hidden="true">
-        {Array.from({ length: LAST_STOP + 1 }, (_, i) => <div key={i} className="story-stop" />)}
-      </div>
       <div className="story-sticky">
         {/* settles the stage to the flat colour the closing frames were shot
             on, so those opaque frames have no visible edge */}
