@@ -14,6 +14,17 @@ export const MOBILE_COUNT = 24;
 export const MOBILE_MAP = [0, 2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22, 23, 25, 26, 28, 29, 30, 32, 33];
 
 /**
+ * Where the assembled burger sits inside the last frame, as fractions of the
+ * frame box. Paired with the closing beat's own anchor to line the two up.
+ */
+export const ASSEMBLED_ANCHOR = {
+  left: 0.0172,
+  top: 0.1326,
+  right: 0.9828,
+  bottom: 0.9463,
+};
+
+/**
  * Per frame, per ingredient layer: [centreY, leftX, rightX] as fractions of the
  * frame box. Measured from the alpha channel at export time, which is what lets
  * each label sit level with its layer and run its rule up to the layer's edge.

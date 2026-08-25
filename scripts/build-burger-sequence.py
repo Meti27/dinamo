@@ -277,6 +277,17 @@ def main():
     et, eb = vspan(ex_alpha)
     shares = [(((s + e) / 2) - et) / (eb - et) for s, e in six]
 
+    # Where the assembled burger sits in the final frame, as fractions of the
+    # crop. The closing beat is scaled and offset against this so its opening
+    # frame lands exactly on the burger this sequence ends on.
+    fa = keyed[-1][1]
+    fm = fa > 0.12
+    fc, fr = np.nonzero(fm.any(0))[0], np.nonzero(fm.any(1))[0]
+    assembled = ((fc.min() - x0) / cw, (fr.min() - y0) / ch,
+                 (fc.max() + 1 - x0) / cw, (fr.max() + 1 - y0) / ch)
+    print(f"assembled anchor x {assembled[0]:.4f}..{assembled[2]:.4f} "
+          f"y {assembled[1]:.4f}..{assembled[3]:.4f}")
+
     layers = []
     for _, a in keyed:
         t, b = vspan(a)
@@ -348,6 +359,17 @@ export const MOBILE_COUNT = {len(mobile)};
 
 /** mobile frame i is a copy of desktop frame MOBILE_MAP[i] */
 export const MOBILE_MAP = {json.dumps(mobile)};
+
+/**
+ * Where the assembled burger sits inside the last frame, as fractions of the
+ * frame box. Paired with the closing beat's own anchor to line the two up.
+ */
+export const ASSEMBLED_ANCHOR = {{
+  left: {assembled[0]:.4f},
+  top: {assembled[1]:.4f},
+  right: {assembled[2]:.4f},
+  bottom: {assembled[3]:.4f},
+}};
 
 /**
  * Per frame, per ingredient layer: [centreY, leftX, rightX] as fractions of the

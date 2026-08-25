@@ -6,7 +6,9 @@ for Cloudflare-based previews.
 
 ## Features
 
-- Scroll-scrubbed burger that comes apart into its six layers and back together
+- Scroll-scrubbed burger that comes apart into its six layers, reassembles, and
+  is packed into a branded Dinamo box
+- Self-hosted Archivo typeface with full Bosnian diacritic coverage
 - Bosnian / English language switcher
 - Responsive layouts for desktop, tablet and mobile
 - Filterable food, ice-cream and drinks menu
@@ -45,32 +47,48 @@ npm run start
 - Browser metadata: `app/layout.tsx`
 - Menu photography and other images: `public/`
 
-## The burger animation
+## The scroll story
 
-The hero burger is a frame sequence drawn onto a `<canvas>`, scrubbed by scroll
-position. Scrubbing a video instead (`video.currentTime = …`) makes the decoder
-seek back to a keyframe on every scroll tick, which stutters on desktop and does
-not work at all on iOS Safari.
+The hero animation is two image sequences drawn onto a `<canvas>` and scrubbed by
+scroll position. Scrubbing a video instead (`video.currentTime = …`) makes the
+decoder seek back to a keyframe on every tick, which stutters on desktop and does
+not work at all on iOS Safari. Blitting an already-decoded frame is what keeps it
+smooth on a phone.
 
-- `app/BurgerSequence.tsx` — preloads the frames and blits them to the canvas
-- `app/burgerStory.ts` — when each beat happens, and where the labels sit
-- `app/burgerFrames.ts` — generated geometry; do not edit by hand
-- `public/burger-seq/` — the frames themselves (AVIF with alpha, ~1.5 MB desktop
-  / ~0.5 MB mobile), plus `public/burger-still.*` for reduced-motion visitors
+The story runs: burger assembled → comes apart into six labelled layers → back
+together → settles into a Dinamo box → the menu wipe.
 
-To retime the animation without touching any images, edit `BEATS` in
+- `app/FrameSequence.tsx` — preloads frames and blits them; used for both beats
+- `app/burgerStory.ts` — beat timing, label anchoring, and the geometry that
+  lines the closing beat up with the burger it takes over from
+- `app/burgerFrames.ts`, `app/finaleFrames.ts` — generated; do not edit by hand
+- `public/burger-seq/` — the layer beat (AVIF **with alpha**, cut out so it sits
+  on the page's own gradient)
+- `public/finale-seq/` — the boxing beat (AVIF, **opaque**). The box is navy on a
+  navy backdrop and will not difference-matte cleanly, so instead the page fades
+  its background to exactly the studio colour the clip was shot on and the frames
+  are drawn as-is. An opaque frame also costs ~5 KB against ~44 KB with alpha.
+- `public/burger-still.*`, `public/finale-still.*` — reduced-motion fallbacks
+
+To retime the story without touching any images, edit `BEATS` in
 `app/burgerStory.ts` and `.scroll-story { height }` in `app/globals.css`.
 
-To rebuild the frames from the master clip:
+To rebuild the frames from the master clips:
 
 ```bash
-python3 scripts/build-burger-sequence.py
+python3 scripts/build-burger-sequence.py    # the layer beat
+python3 scripts/build-finale-sequence.py    # the boxing beat
 ```
 
-That cuts the burger out of `assets/source/burger-master.mp4` by difference
-matting — the clip's blue backdrop never moves, so it can be reconstructed and
-subtracted, giving a real alpha channel. The script rewrites `public/burger-seq/`
-and `app/burgerFrames.ts`. `assets/` is not served; it exists only for rebuilds.
+The first cuts the burger out of `assets/source/burger-master.mp4` by difference
+matting — that clip's backdrop never moves, so it can be reconstructed and
+subtracted, giving a real alpha channel. The second flattens the faint gradient
+out of `assets/source/burger-boxing.mp4`'s backdrop so the page can match it with
+one flat colour. Both scripts also rewrite their generated `app/*Frames.ts`.
+`assets/` is not served; it exists only for rebuilds.
+
+The Dinamo crest on the box lid is the real crest, composited onto the generated
+packaging rather than drawn by the model, so it stays accurate.
 
 ## Deployment options
 

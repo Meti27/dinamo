@@ -1,34 +1,53 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ASPECT, DESKTOP_COUNT, EXPLODE_FRAMES, MOBILE_COUNT, MOBILE_MAP } from "./burgerFrames";
 
 /**
- * Scroll-scrubbed burger, drawn as a preloaded frame sequence on a canvas.
+ * A scroll-scrubbed image sequence drawn onto a canvas.
  *
  * Seeking a video (`video.currentTime = …`) forces the decoder back to the
  * previous keyframe on every scroll tick, which janks everywhere and does not
  * work at all on iOS Safari. Blitting an already-decoded frame costs nothing,
- * so the burger tracks the scrollbar exactly.
+ * so the picture tracks the scrollbar exactly — on a phone as much as a desktop.
  */
 
+export type SequenceSource = {
+  /** directory under /public holding `<dir>/{desktop,mobile}/f000.avif` */
+  dir: string;
+  desktopCount: number;
+  mobileCount: number;
+  /** width / height of every frame */
+  aspect: number;
+  /** frames below this index are fetched first, the rest stream in after */
+  priorityUntil?: number;
+  /**
+   * mobile frame i is a copy of desktop frame mobileMap[i]. Needed when the two
+   * variants are not sampled at a uniform ratio; omit for an even reduction.
+   */
+  mobileMap?: readonly number[];
+  /**
+   * Hold off this long before fetching, so a later beat yields the connection to
+   * the one the visitor sees first. A plain delay rather than a scroll trigger:
+   * scroll state is driven by requestAnimationFrame, which a background tab
+   * throttles, and a sequence that never preloads is worse than one that
+   * preloads early.
+   */
+  startDelayMs?: number;
+};
+
 type Props = {
-  /** position in the sequence, as a float — only the rounded frame is drawn */
+  source: SequenceSource;
+  /** position in the sequence, as a float over the DESKTOP frame count */
   frame: number;
-  label: string;
+  className?: string;
+  style?: React.CSSProperties;
+  label?: string;
+  /** still shown for reduced motion, or if the frames cannot be decoded */
+  still: { avif: string; fallback: string };
 };
 
 const MOBILE_QUERY = "(max-width: 700px)";
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
-
-/** mobile ships fewer frames; map a desktop frame index onto the nearest one */
-const MOBILE_INVERSE: number[] = Array.from({ length: DESKTOP_COUNT }, (_, d) => {
-  let best = 0;
-  for (let m = 1; m < MOBILE_MAP.length; m++) {
-    if (Math.abs(MOBILE_MAP[m] - d) < Math.abs(MOBILE_MAP[best] - d)) best = m;
-  }
-  return best;
-});
 
 function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
@@ -42,10 +61,7 @@ function useMediaQuery(query: string): boolean {
   );
 }
 
-type Loaded = { images: (CanvasImageSource | undefined)[]; toIndex: (frame: number) => number };
-
-async function fetchFrame(dir: string, i: number): Promise<CanvasImageSource> {
-  const url = `/burger-seq/${dir}/f${String(i).padStart(3, "0")}.avif`;
+async function fetchFrame(url: string): Promise<CanvasImageSource> {
   if (typeof createImageBitmap === "function") {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`${url}: ${res.status}`);
@@ -59,9 +75,12 @@ async function fetchFrame(dir: string, i: number): Promise<CanvasImageSource> {
   });
 }
 
-export default function BurgerSequence({ frame, label }: Props) {
+export default function FrameSequence({
+  source, frame, className, style, label, still,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const loadedRef = useRef<Loaded | null>(null);
+  const imagesRef = useRef<(CanvasImageSource | undefined)[] | null>(null);
+  const toIndexRef = useRef<(f: number) => number>(() => 0);
   const frameRef = useRef(frame);
   const drawnRef = useRef(-1);
   const rafRef = useRef(0);
@@ -70,16 +89,16 @@ export default function BurgerSequence({ frame, label }: Props) {
   const narrow = useMediaQuery(MOBILE_QUERY);
   const [unsupported, setUnsupported] = useState(false);
   const [ready, setReady] = useState(false);
-  const still = reducedMotion || unsupported;
+  const showStill = reducedMotion || unsupported;
 
   const draw = () => {
     rafRef.current = 0;
     const canvas = canvasRef.current;
-    const loaded = loadedRef.current;
-    if (!canvas || !loaded) return;
+    const images = imagesRef.current;
+    if (!canvas || !images) return;
 
-    const i = loaded.toIndex(frameRef.current);
-    const img = loaded.images[i];
+    const i = toIndexRef.current(frameRef.current);
+    const img = images[i];
     if (!img || i === drawnRef.current) return;
 
     const ctx = canvas.getContext("2d");
@@ -104,28 +123,43 @@ export default function BurgerSequence({ frame, label }: Props) {
   });
 
   useEffect(() => {
-    if (still) return;
+    if (showStill) return;
 
     // Read the query here rather than trusting `narrow`: on hydration that
     // starts from the server snapshot (false) and only corrects on the next
     // render, which would kick off a desktop fetch on a phone. The store value
-    // is still the dependency, so a real viewport change re-runs this.
+    // is still a dependency, so a real viewport change re-runs this.
     const mobile = window.matchMedia(MOBILE_QUERY).matches;
     const dir = mobile ? "mobile" : "desktop";
-    const count = mobile ? MOBILE_COUNT : DESKTOP_COUNT;
-    const clampFrame = (f: number) => Math.max(0, Math.min(DESKTOP_COUNT - 1, Math.round(f)));
-    const toIndex = mobile ? (f: number) => MOBILE_INVERSE[clampFrame(f)] : clampFrame;
+    const count = mobile ? source.mobileCount : source.desktopCount;
+    const span = source.desktopCount - 1;
+
+    const map = mobile ? source.mobileMap : undefined;
+    if (map) {
+      const inverse = Array.from({ length: source.desktopCount }, (_, d) => {
+        let best = 0;
+        for (let m = 1; m < map.length; m++) {
+          if (Math.abs(map[m] - d) < Math.abs(map[best] - d)) best = m;
+        }
+        return best;
+      });
+      toIndexRef.current = (f: number) =>
+        inverse[Math.max(0, Math.min(source.desktopCount - 1, Math.round(f)))];
+    } else {
+      toIndexRef.current = (f: number) => {
+        const t = span > 0 ? Math.max(0, Math.min(1, f / span)) : 0;
+        return Math.max(0, Math.min(count - 1, Math.round(t * (count - 1))));
+      };
+    }
 
     const images: (CanvasImageSource | undefined)[] = new Array(count);
-    loadedRef.current = { images, toIndex };
+    imagesRef.current = images;
     drawnRef.current = -1;
     let cancelled = false;
 
-    // The burger has to come apart before it can go back together, so fetch the
-    // explode frames first and pull the reassembly down in the background while
-    // the visitor is still reading the ingredient labels.
-    const split = mobile ? MOBILE_MAP.findIndex((d) => d >= EXPLODE_FRAMES) : EXPLODE_FRAMES;
-    const firstPass = split > 0 ? split : count;
+    const priority = source.priorityUntil
+      ? Math.max(1, Math.round((source.priorityUntil / source.desktopCount) * count))
+      : count;
 
     // A frame that fails to load is left undefined; draw() skips it and holds
     // the previous one, which beats tearing down an otherwise working canvas.
@@ -133,7 +167,7 @@ export default function BurgerSequence({ frame, label }: Props) {
       for (let i = from; i < to; i++) {
         if (cancelled) return;
         try {
-          images[i] = await fetchFrame(dir, i);
+          images[i] = await fetchFrame(`/${source.dir}/${dir}/f${String(i).padStart(3, "0")}.avif`);
           schedule();
         } catch {
           /* keep going */
@@ -142,9 +176,12 @@ export default function BurgerSequence({ frame, label }: Props) {
     };
 
     (async () => {
+      if (source.startDelayMs) {
+        await new Promise((r) => setTimeout(r, source.startDelayMs));
+        if (cancelled) return;
+      }
       try {
-        // frame 0 is what the hero shows, so reveal as soon as it lands
-        images[0] = await fetchFrame(dir, 0);
+        images[0] = await fetchFrame(`/${source.dir}/${dir}/f000.avif`);
       } catch {
         // No AVIF support, or the files are missing — fall back to the still.
         if (!cancelled) setUnsupported(true);
@@ -153,24 +190,24 @@ export default function BurgerSequence({ frame, label }: Props) {
       if (cancelled) return;
       setReady(true);
       schedule();
-      await loadRange(1, firstPass);
+      await loadRange(1, priority);
       if (cancelled) return;
-      await loadRange(firstPass, count);
+      await loadRange(priority, count);
     })();
 
     return () => {
       cancelled = true;
-      loadedRef.current = null;
+      imagesRef.current = null;
       for (const img of images) {
         if (img && "close" in img) (img as ImageBitmap).close();
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [narrow, still]);
+  }, [narrow, showStill, source.dir]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || still) return;
+    if (!canvas || showStill) return;
     const resize = () => {
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       const w = Math.round(canvas.clientWidth * dpr);
@@ -187,13 +224,13 @@ export default function BurgerSequence({ frame, label }: Props) {
     ro.observe(canvas);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [still]);
+  }, [showStill]);
 
-  if (still) {
+  if (showStill) {
     return (
       <picture>
-        <source srcSet="/burger-still.avif" type="image/avif" />
-        <img className="burger-media" src="/burger-still.webp" alt={label} />
+        <source srcSet={still.avif} type="image/avif" />
+        <img className={className} style={style} src={still.fallback} alt={label ?? ""} />
       </picture>
     );
   }
@@ -201,9 +238,9 @@ export default function BurgerSequence({ frame, label }: Props) {
   return (
     <canvas
       ref={canvasRef}
-      className={ready ? "burger-media ready" : "burger-media"}
-      style={{ aspectRatio: String(ASPECT) }}
-      role="img"
+      className={ready ? `${className ?? ""} ready`.trim() : className}
+      style={{ ...style, aspectRatio: String(source.aspect) }}
+      role={label ? "img" : "presentation"}
       aria-label={label}
     />
   );

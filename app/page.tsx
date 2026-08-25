@@ -2,9 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import BurgerSequence from "./BurgerSequence";
-import { ASPECT } from "./burgerFrames";
-import { BEATS, frameForProgress, labelReveal, layerAnchor, menuWipe } from "./burgerStory";
+import FrameSequence from "./FrameSequence";
+import {
+  BEATS, BURGER_SEQUENCE, FINALE_BACKDROP, FINALE_OFFSET, FINALE_SCALE, FINALE_SEQUENCE,
+  finaleFrameForProgress, finaleSettle, finaleTakeover, frameForProgress, labelReveal,
+  layerAnchor, menuWipe, studioFade,
+} from "./burgerStory";
 
 type Lang = "bs" | "en";
 type Category = "all" | "burgers" | "ice" | "drinks";
@@ -50,6 +53,7 @@ const translations = {
       ["Tostirano pecivo", "Čvrsta baza za burger bez kompromisa."],
     ],
     burgerAria: "Dinamo burger koji se rastavlja na šest svježih sastojaka",
+    boxAria: "Dinamo burger se slaže i zatvara u kutiju s logom",
   },
   en: {
     menu: "Menu", location: "Location", call: "Call us", open: "Orašje · open 8am–11pm",
@@ -72,6 +76,7 @@ const translations = {
       ["Toasted bun", "A solid base for a no-compromise burger."],
     ],
     burgerAria: "Dinamo burger separating into six fresh ingredient layers",
+    boxAria: "The Dinamo burger settling into a branded box",
   },
 } as const;
 
@@ -81,6 +86,10 @@ export default function Home() {
   const [scrolled, setScrolled] = useState(false);
   const [storyProgress, setStoryProgress] = useState(0);
   const storyRef = useRef<HTMLElement>(null);
+  const burgerRef = useRef<HTMLDivElement>(null);
+  // the closing beat is sized against the burger it takes over from, so it has
+  // to know how tall that actually rendered — the height is a responsive clamp
+  const [stage, setStage] = useState({ burgerH: 0, viewportH: 0, viewportW: 0 });
   const t = translations[lang];
 
   useEffect(() => {
@@ -91,6 +100,25 @@ export default function Home() {
   useEffect(() => {
     const saved = localStorage.getItem("dinamo-language");
     if (saved === "en" || saved === "bs") setLang(saved);
+  }, []);
+
+  useEffect(() => {
+    const el = burgerRef.current;
+    if (!el) return;
+    const measure = () =>
+      setStage({
+        burgerH: el.getBoundingClientRect().height,
+        viewportH: window.innerHeight,
+        viewportW: window.innerWidth,
+      });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
   }, []);
 
   useEffect(() => {
@@ -121,6 +149,18 @@ export default function Home() {
 
   const shown = category === "all" ? items : items.filter((item) => item.category === category);
   const frame = frameForProgress(storyProgress);
+  const finaleFrame = finaleFrameForProgress(storyProgress);
+  const boxed = finaleTakeover(storyProgress);
+  const settle = finaleSettle(storyProgress);
+  const mix = (a: number, b: number) => a + (b - a) * settle;
+  // starts matched to the burger's framing, ends centred and fitted. The frame
+  // is square, so the width bound matters as much as the height one on a phone.
+  const finaleH = mix(
+    stage.burgerH * FINALE_SCALE,
+    Math.min(stage.viewportH * 0.84, stage.viewportW * 0.94, 760),
+  );
+  const finaleY = mix(FINALE_OFFSET * stage.burgerH, 0);
+  const studio = studioFade(storyProgress);
   const wipe = menuWipe(storyProgress);
 
   return (
@@ -139,7 +179,10 @@ export default function Home() {
 
       <section className="scroll-story" id="top" ref={storyRef}>
         <div className="story-sticky">
-          <div className="story-grid" aria-hidden="true" />
+          {/* settles the stage to the flat colour the closing frames were shot
+              on, so those opaque frames have no visible edge */}
+          <div className="story-studio" style={{ background: FINALE_BACKDROP, opacity: studio }} aria-hidden="true" />
+          <div className="story-grid" aria-hidden="true" style={{ opacity: 1 - studio }} />
           <header className="story-intro" style={{ opacity: Math.max(0, 1 - storyProgress / BEATS.introEnd), transform: `translateY(${storyProgress * -90}px)` }}>
             <p className="eyebrow"><span /> {t.open}</p>
             <h1>{t.headline[0]}<br />{t.headline[1]}</h1>
@@ -151,9 +194,15 @@ export default function Home() {
           <div className="story-title finish-title" style={{ opacity: Math.max(0, Math.min(1, (storyProgress - BEATS.studyEnd - .03) * 8, (BEATS.assembleEnd + .05 - storyProgress) * 8)) }}>
             <p>{t.simple}</p><h2>{t.inPlace}</h2>
           </div>
-          <div className="story-halo" />
-          <div className="story-burger" style={{ "--burger-aspect": ASPECT } as React.CSSProperties}>
-            <BurgerSequence frame={frame} label={t.burgerAria} />
+          <div className="story-halo" style={{ opacity: 1 - studio }} />
+          <div ref={burgerRef} className="story-burger" style={{ opacity: boxed ? 0 : 1, aspectRatio: String(BURGER_SEQUENCE.aspect) }}>
+            <FrameSequence
+              source={BURGER_SEQUENCE}
+              frame={frame}
+              className="burger-media"
+              label={t.burgerAria}
+              still={{ avif: "/burger-still.avif", fallback: "/burger-still.webp" }}
+            />
             {t.ingredientLabels.map((label, index) => {
               const reveal = labelReveal(storyProgress, index);
               const at = layerAnchor(frame, index);
@@ -175,6 +224,23 @@ export default function Home() {
                 </div>
               );
             })}
+          </div>
+          <div
+            className="story-finale"
+            style={{
+              opacity: boxed,
+              left: `${mix(54, 50)}%`,
+              height: `${finaleH}px`,
+              transform: `translate(-50%, -50%) translateY(${finaleY}px)`,
+            }}
+          >
+            <FrameSequence
+              source={FINALE_SEQUENCE}
+              frame={finaleFrame}
+              className="burger-media"
+              label={t.boxAria}
+              still={{ avif: "/finale-still.avif", fallback: "/finale-still.webp" }}
+            />
           </div>
           <div className="story-wipe" style={{ transform: `translateY(${(1 - wipe) * 100}%)` }}>
             <span style={{ transform: `translateY(${(1 - wipe) * 70}px) scale(${.88 + wipe * .12})`, opacity: wipe }}>{t.menu.toUpperCase()}</span>

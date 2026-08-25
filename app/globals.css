@@ -1,10 +1,16 @@
 @import "tailwindcss";
 
+/* ---------- type ----------
+   Archivo, self-hosted so there is no third-party request and no flash of a
+   fallback face. The latin-ext subset is what carries Č, Ć, Ž, Š and Đ. */
+@font-face{font-family:Archivo;font-style:normal;font-weight:400 900;font-display:swap;src:url(/fonts/archivo-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF}
+@font-face{font-family:Archivo;font-style:normal;font-weight:400 900;font-display:swap;src:url(/fonts/archivo-latin.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+
 /* ---------- base ---------- */
 :root{--blue:#082e68;--red:#d80d16;--cream:#f2ead8;--gold:#d7b767;--ink:#11120f}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;background:var(--cream);color:var(--ink);font-family:Arial,Helvetica,sans-serif;overflow-x:hidden}
+body{margin:0;background:var(--cream);color:var(--ink);overflow-x:hidden;font-family:Archivo,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 a{text-decoration:none;color:inherit}
 button{font:inherit}
 
@@ -41,22 +47,31 @@ button{font:inherit}
 .scroll-story{height:380vh;background:#03162f;color:#fff;position:relative}
 .story-sticky{height:100svh;position:sticky;top:0;overflow:hidden;background:radial-gradient(circle at 54% 50%,#0a58a5 0,#073a78 31%,#041d42 67%,#031329 100%)}
 .story-sticky:after{content:"";position:absolute;z-index:6;inset:0;pointer-events:none;background:linear-gradient(90deg,#021229aa 0,transparent 28%,transparent 72%,#02122988 100%),linear-gradient(0deg,#020b18a8,transparent 25%,transparent 75%,#020b1880)}
-.story-grid{position:absolute;inset:0;background-image:linear-gradient(#ffffff07 1px,transparent 1px),linear-gradient(90deg,#ffffff07 1px,transparent 1px);background-size:70px 70px;mask-image:radial-gradient(circle,black,transparent 72%)}
+.story-grid{position:absolute;z-index:2;inset:0;background-image:linear-gradient(#ffffff07 1px,transparent 1px),linear-gradient(90deg,#ffffff07 1px,transparent 1px);background-size:70px 70px;mask-image:radial-gradient(circle,black,transparent 72%)}
 .story-grid:after{content:"";position:absolute;left:54%;top:50%;width:80vh;height:80vh;border:1px solid #ffffff10;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 0 12vh #ffffff05,0 0 0 25vh #ffffff04}
 .story-intro{position:absolute;z-index:7;left:5vw;top:50%;transform:translateY(-50%);will-change:transform,opacity}
-/* .95, not the tighter figure a display headline would normally take: Arial's
-   caron on Č rises past a .86 line box and collides with the line above it */
-.story-intro h1{font-size:clamp(80px,11vw,170px);line-height:.95;letter-spacing:-.085em;margin:22px 0;text-transform:uppercase;font-weight:950;text-shadow:0 12px 45px #0006}
+/* Archivo's caron on Č rises well past the cap height, so the line box has to
+   stay open enough for it to clear the line above — .92 is the floor here. */
+.story-intro h1{font-size:clamp(64px,8.4vw,146px);line-height:.94;letter-spacing:-.05em;margin:20px 0;text-transform:uppercase;font-weight:900;text-shadow:0 12px 45px #0006}
 .story-intro>p:last-child{font-size:18px;color:#b9d1ee}
-.story-halo{position:absolute;z-index:2;left:54%;top:50%;width:44vw;max-width:620px;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,#1675d880 0,#0e55a930 40%,transparent 70%);filter:blur(14px);transform:translate(-50%,-50%)}
+.story-halo{position:absolute;z-index:3;left:54%;top:50%;width:44vw;max-width:620px;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,#1675d880 0,#0e55a930 40%,transparent 70%);filter:blur(14px);transform:translate(-50%,-50%)}
 
 /* the burger box is the burger's own bounding box, so label rows line up with
    the layer centres reported by the sequence manifest */
-.story-burger{position:absolute;z-index:4;left:54%;top:50%;height:min(76vh,650px);aspect-ratio:var(--burger-aspect,.638);transform:translate(-50%,-50%)}
+.story-sticky{--burger-h:min(76vh,650px)}
+.story-burger{position:absolute;z-index:6;left:54%;top:50%;height:var(--burger-h);transform:translate(-50%,-50%);transition:opacity .18s linear}
+/* the closing beat sits on the same anchor point; its size and nudge come from
+   the two sequences' measured anchors so its first frame lands exactly on the
+   burger the previous beat ended on */
+.story-finale{position:absolute;z-index:6;left:54%;top:50%;aspect-ratio:1;transition:opacity .18s linear}
+/* these frames are opaque and carry their own shadow — a drop-shadow here would
+   trace the canvas rectangle instead of the box inside it */
+.story-finale .burger-media{filter:none}
+.story-studio{position:absolute;z-index:1;inset:0;pointer-events:none}
 .burger-media{display:block;width:100%;height:100%;opacity:0;transition:opacity .45s ease;filter:drop-shadow(0 24px 24px #00142c70);user-select:none;pointer-events:none}
 .burger-media.ready,img.burger-media{opacity:1}
 
-.ingredient-label{position:absolute;z-index:8;width:235px;will-change:opacity,transform;transition:opacity .12s linear;text-shadow:0 2px 12px #001936}
+.ingredient-label{position:absolute;z-index:9;width:235px;will-change:opacity,transform;transition:opacity .12s linear;text-shadow:0 2px 12px #001936}
 .ingredient-label:before{content:"";position:absolute;top:12px;width:46px;height:1px;background:var(--gold);box-shadow:0 0 10px var(--gold)}
 .ingredient-label span{position:absolute;top:-2px;color:var(--gold);font-size:10px;font-weight:900;letter-spacing:.12em}
 .ingredient-label strong{display:block;font-size:17px;line-height:1.1}
@@ -70,11 +85,11 @@ button{font:inherit}
 
 .story-title{position:absolute;z-index:7;left:5vw;bottom:8vh;will-change:opacity}
 .story-title p{font-size:10px;font-weight:900;letter-spacing:.22em;color:var(--gold)}
-.story-title h2{font-size:clamp(46px,6vw,94px);line-height:.95;letter-spacing:-.06em;margin:12px 0;text-shadow:0 10px 40px #0004}
+.story-title h2{font-size:clamp(46px,6vw,94px);line-height:.98;letter-spacing:-.035em;font-weight:800;margin:12px 0;text-shadow:0 10px 40px #0004}
 .finish-title{left:auto;right:5vw;text-align:right}
 
 .story-wipe{position:absolute;z-index:20;inset:0;background:var(--red);display:grid;place-items:center;will-change:transform}
-.story-wipe span{font-size:clamp(90px,22vw,320px);font-weight:950;letter-spacing:-.09em;color:#fff;line-height:.8;will-change:transform,opacity;text-shadow:0 20px 50px #6a000044}
+.story-wipe span{font-size:clamp(90px,22vw,320px);font-weight:900;letter-spacing:-.05em;color:#fff;line-height:.8;will-change:transform,opacity;text-shadow:0 20px 50px #6a000044}
 .story-progress{position:absolute;z-index:21;right:28px;top:18%;height:64%;width:2px;background:#ffffff20}
 .story-progress span{display:block;width:100%;background:var(--red);box-shadow:0 0 12px var(--red)}
 .story-phase{position:absolute;z-index:21;right:52px;top:17%;display:flex;align-items:baseline;gap:4px;font-variant-numeric:tabular-nums}
@@ -86,13 +101,13 @@ button{font:inherit}
    Sits flush under the story so the red of the menu wipe runs straight into it
    instead of cutting to a new section. */
 .ticker{overflow:hidden;background:var(--red);color:#fff;transform:rotate(-1deg);width:104%;margin:-2px 0 0 -2%;position:relative;z-index:4}
-.ticker div{white-space:nowrap;font-size:clamp(28px,4vw,58px);font-weight:950;letter-spacing:-.03em;padding:15px 0;animation:marquee 20s linear infinite}
+.ticker div{white-space:nowrap;font-size:clamp(28px,4vw,58px);font-weight:900;letter-spacing:-.02em;padding:15px 0;animation:marquee 20s linear infinite}
 @keyframes marquee{to{transform:translateX(-50%)}}
 
 /* ---------- menu ---------- */
 .menu-section{background:var(--blue);color:#fff;padding:120px 5vw}
 .menu-heading{display:flex;align-items:end;justify-content:space-between;gap:30px}
-.menu-heading h2,.location h2{font-size:clamp(55px,8vw,115px);line-height:.95;letter-spacing:-.065em;margin:25px 0 70px}
+.menu-heading h2,.location h2{font-size:clamp(55px,8vw,115px);line-height:.98;letter-spacing:-.04em;font-weight:800;margin:25px 0 70px}
 .menu-heading h2{margin:22px 0 0}
 .light{color:#91b7ee}
 .filters{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
@@ -150,9 +165,10 @@ footer{background:#071b36;color:#fff;display:flex;align-items:center;justify-con
   .story-intro,.story-title{max-width:88vw}
   .story-intro{left:0;top:14%;width:100%;text-align:center}
   .story-intro .eyebrow{justify-content:center}
-  .story-intro h1{font-size:clamp(70px,17vw,115px);margin:18px 0}
+  .story-intro h1{font-size:clamp(56px,13vw,104px);margin:16px 0}
   .story-halo{left:50%;top:56%;width:80vw}
-  .story-burger{left:50%;top:56%;height:min(58vh,470px)}
+  .story-sticky{--burger-h:min(58vh,470px)}
+  .story-burger,.story-finale{left:50%;top:56%}
   .story-title{left:22px;bottom:4vh}
   .finish-title{left:auto;right:22px}
   .ingredient-label{width:175px}
@@ -174,10 +190,11 @@ footer{background:#071b36;color:#fff;display:flex;align-items:center;justify-con
   .lang-switch button{min-width:29px;height:29px;padding:0 6px;font-size:9px}
   .scroll-story{height:320vh}
   /* small enough that the edge-pinned labels clear the food */
-  .story-burger{top:53%;height:min(42vh,330px)}
-  .story-halo{top:53%}
-  .story-intro{top:16%;padding:0 20px}
-  .story-intro h1{font-size:19vw}
+  .story-sticky{--burger-h:min(42vh,330px)}
+  .story-burger,.story-finale{top:56%}
+  .story-halo{top:56%}
+  .story-intro{top:11%;padding:0 20px}
+  .story-intro h1{font-size:14.5vw;margin:12px 0}
   .story-intro>p:last-child{font-size:14px}
   .story-title h2{font-size:40px;max-width:260px}
   /* labels move to the frame edges so they never sit on top of the burger */

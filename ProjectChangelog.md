@@ -1,3 +1,59 @@
+### [2026-08-25] Added the boxing finale, and set the site in a real typeface
+
+**Changes:** The scroll story now ends with the reassembled burger settling into
+a navy-and-gold Dinamo box that closes over it, crest on the lid. Generated with
+Higgsfield; integrated as a second canvas sequence so it stays smooth on a phone.
+
+- Generated the packaging with `nano_banana_pro` (three concepts, picked the
+  clamshell) and the motion with `kling3_0` using **both** a start and an end
+  keyframe — start = the burger this site already ships, composited onto the box
+  render's own backdrop; end = the closed box. Constraining both ends is what
+  kept the shot on-model instead of letting it invent a burger.
+- The **crest is composited, not generated**: the model renders a blank gold
+  medallion and the real crest is warped into that ellipse with the lid's own
+  shading applied. A generated logo would have been subtly wrong.
+- Cut a clean transparent crest out of `public/dinamo.jpg` (it was a photo of the
+  badge on fabric) by fitting the disc — 0.85px edge residual.
+- The closing frames are **not** cut out. The box is navy on a navy backdrop and
+  will not difference-matte; instead the page fades its background to the clip's
+  studio colour and the frames are drawn opaque. Opaque also costs ~5 KB/frame
+  against ~44 KB with alpha, so the whole beat is 478 KB.
+- Both sequences report where the assembled burger sits inside their own frame;
+  the closing beat is scaled and offset from those two anchors so its first frame
+  lands on the burger the previous beat ended on. Measured handoff error is ~4px
+  on a 528px burger. It then settles to a centred, viewport-fitted hero framing,
+  because the box is far wider than the burger.
+- Replaced Arial with **Archivo**, self-hosted (66 KB, latin + latin-ext for
+  Č/Ć/Ž/Š/Đ). Rebalanced display sizes — the wider face was running the headline
+  into the burger and wrapping it onto the burger on phones.
+
+**Files:** `app/FrameSequence.tsx` (generalised from `BurgerSequence.tsx`, now
+deleted), `app/finaleFrames.ts` (generated), `app/burgerStory.ts`, `app/page.tsx`,
+`app/globals.css`, `scripts/build-finale-sequence.py`,
+`scripts/build-burger-sequence.py`, `public/finale-seq/`, `public/finale-still.*`,
+`public/fonts/`, `assets/source/burger-boxing.mp4`, `README.md`
+
+**Decisions:**
+- `kling3_0` at 8.75 credits/shot over `seedance_2_5` at 45 — five times the
+  attempts for the same spend. Whole finale cost ~14.75 credits (95.25 left).
+- Kept the canvas-sequence architecture rather than embedding the generated clip
+  as a video. The clip is the *source*; the site never ships an MP4, which is
+  what keeps scrubbing smooth on iOS.
+- Asset preloading is a plain `startDelayMs`, not a scroll trigger. Scroll state
+  is driven by requestAnimationFrame, which a background tab throttles — a
+  sequence that never preloads is worse than one that preloads early.
+
+**TODOs:**
+- `npm test` still fails on `renders development preview metadata` (host-injected
+  `codex-preview` meta; fails identically on the pre-change tree).
+- `npm run lint`: one pre-existing error at `app/page.tsx:102` (setState in an
+  effect for the localStorage language restore).
+- Reduced-motion and no-AVIF fallbacks verified by asset and markup inspection,
+  not exercised end-to-end.
+- The closing element deliberately overflows the viewport between p≈0.72 and
+  0.80 while the box rises from off-frame; content there is the tray entering, so
+  nothing meaningful is clipped.
+
 ### [2026-08-24] Rebuilt the scroll-story burger animation
 
 **Changes:** The hero burger was a 27 MB MP4 scrubbed with `video.currentTime` on
