@@ -1,3 +1,45 @@
+### [2026-08-25] Scroll story moved from continuous scrubbing to fixed stops
+
+**Changes:** The story was scrubbed straight from scroll position, so every
+frame was tied to however jerkily the wheel was turned — which is what made it
+feel laggy — and it re-rendered on every scroll event. It now runs as five
+stops, and the scroll only chooses a destination.
+
+- `app/burgerStory.ts` is rebuilt around a `stop` value (0..4: whole, apart,
+  whole again, boxed, menu wipe) instead of a raw 0..1 scroll fraction. Every
+  stop lands on a clean resting state — verified by evaluating the timing
+  functions directly: at stop 1 all six labels read 1.0 and the burger is fully
+  apart; at stop 2 it is whole with the studio backdrop fully faded; at stop 3
+  the box is shut; at stop 4 the wipe is full.
+- Scroll sets a target; a separate eased loop walks the animation to it. So
+  playback is smooth regardless of how coarse or fast the gesture was, and
+  re-renders happen in short bursts during a transition rather than continuously.
+- Section is 500svh with one snap marker per stop
+  (`scroll-snap-align:start; scroll-snap-stop:always`), `scroll-snap-type` set to
+  `y proximity` on the root so the rest of the page still scrolls freely.
+- Snapping alone goes to the *nearest* point, so one wheel notch would have
+  fallen back to where it started. A wheel/touch/key handler moves exactly one
+  stop per gesture, with a 640ms debounce so a flick's momentum does not skip
+  several. It binds only while the story fills the viewport and hands the
+  gesture back at either end — verified there is no scroll trap: up at stop 0
+  and down at stop 4 both pass through to the page.
+
+**Files:** `app/burgerStory.ts`, `app/page.tsx`, `app/globals.css`
+
+**Decisions:**
+- Kept native scrolling and CSS snap underneath the gesture handler rather than
+  fully hijacking: the scrollbar stays honest, dragging it still works, and
+  keyboard/touch are handled explicitly.
+- Reduced motion gets `behavior: "auto"` on the stop-to-stop jump.
+
+**TODOs:**
+- Stop-to-stop easing and snapping could not be verified visually here: both are
+  driven by requestAnimationFrame, which a background tab starves, so every
+  screenshot caught the tween mid-flight. The timing maths and the gesture
+  routing were verified numerically instead.
+- Pre-existing: `npm test` fails on the host-injected `codex-preview` assertion;
+  one lint error at `app/page.tsx:107`.
+
 ### [2026-08-25] Fixed the closing-beat flicker; reshot it on a model that holds detail
 
 **Changes:** Two problems with the closing beat, one a bug and one a model choice.

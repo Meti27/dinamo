@@ -7,26 +7,21 @@ import {
 import type { SequenceSource } from "./FrameSequence";
 
 /**
- * Where each beat of the scroll story sits, as a fraction of the section's
- * scrollable height.
+ * The story is told in fixed stops rather than scrubbed continuously.
  *
- * Both source clips hold still for long stretches; those dead frames were
- * dropped at export time, so the holds live here instead and the whole story
- * can be retimed without re-encoding anything.
+ * One scroll gesture moves between neighbouring stops; the page snaps to them,
+ * and the animation eases across on its own clock. Scrubbing straight from
+ * scroll position tied every frame to however jerkily the wheel was turned,
+ * which is what made it feel laggy — the scroll only chooses a destination now.
+ *
+ *   0  burger whole, headline on screen
+ *   1  apart, ingredient labels readable
+ *   2  back together
+ *   3  boxed
+ *   4  the menu wipe
  */
-export const BEATS = {
-  /** assembled, hero copy on screen */
-  introEnd: 0.13,
-  /** coming apart */
-  explodeEnd: 0.40,
-  /** held apart, ingredient labels readable */
-  studyEnd: 0.58,
-  /** going back together */
-  assembleEnd: 0.72,
-  /** settling into the box, lid closing */
-  boxingEnd: 0.93,
-  /** the menu wipe takes over */
-} as const;
+export const STOPS = ["intro", "layers", "whole", "boxed", "menu"] as const;
+export const LAST_STOP = STOPS.length - 1;
 
 export const BURGER_SEQUENCE: SequenceSource = {
   dir: "burger-seq",
@@ -52,50 +47,76 @@ const LAST_EXPLODE = EXPLODE_FRAMES - 1;
 const LAST_FRAME = DESKTOP_COUNT - 1;
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+/** how far `v` has travelled from `from` to `to`, clamped */
 const span = (v: number, from: number, to: number) => clamp01((v - from) / (to - from));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-/** story progress 0..1 -> position in the burger sequence, as a float */
-export function frameForProgress(p: number): number {
-  if (p <= BEATS.introEnd) return 0;
-  if (p < BEATS.explodeEnd) {
-    return lerp(0, LAST_EXPLODE, span(p, BEATS.introEnd, BEATS.explodeEnd));
-  }
-  if (p < BEATS.studyEnd) return LAST_EXPLODE;
-  if (p < BEATS.assembleEnd) {
-    return lerp(EXPLODE_FRAMES, LAST_FRAME, span(p, BEATS.studyEnd, BEATS.assembleEnd));
-  }
+/** scroll fraction over the whole section -> position between stops, 0..LAST_STOP */
+export function stopForProgress(p: number): number {
+  return clamp01(p) * LAST_STOP;
+}
+
+/** stop 0 -> 1: the burger comes apart */
+export function frameForStop(stop: number): number {
+  if (stop <= 0) return 0;
+  if (stop < 1) return lerp(0, LAST_EXPLODE, span(stop, 0, 1));
+  if (stop < 2) return lerp(EXPLODE_FRAMES, LAST_FRAME, span(stop, 1, 2));
   return LAST_FRAME;
 }
 
-/** story progress 0..1 -> position in the closing sequence, as a float */
-export function finaleFrameForProgress(p: number): number {
-  return lerp(0, FINALE_DESKTOP_COUNT - 1, span(p, BEATS.assembleEnd, BEATS.boxingEnd));
+/** stop 2 -> 3: it settles into the box */
+export function finaleFrameForStop(stop: number): number {
+  return lerp(0, FINALE_DESKTOP_COUNT - 1, span(stop, 2, 3));
 }
 
-/**
- * How far the closing beat has settled from the framing it inherits (matched to
- * the burger it takes over from) into its own hero framing (centred and sized to
- * the viewport). The box is much wider than the burger, so without this the
- * finished box overruns the screen and sits off to one side.
- */
-export function finaleSettle(p: number): number {
-  const t = span(p, BEATS.assembleEnd, BEATS.assembleEnd + (BEATS.boxingEnd - BEATS.assembleEnd) * 0.65);
-  return t * t * (3 - 2 * t); // smoothstep
-}
-
-/** 0 while the burger beat owns the stage, 1 once the closing beat does */
-export function finaleTakeover(p: number): number {
-  return p >= BEATS.assembleEnd ? 1 : 0;
+/** 1 once the closing beat owns the stage */
+export function finaleTakeover(stop: number): number {
+  return stop >= 2 ? 1 : 0;
 }
 
 /**
  * How far the backdrop has settled from the page's own gradient to the flat
- * studio colour the closing frames were shot on. Completing this before the
- * handoff is what hides the seam around those opaque frames.
+ * studio colour the closing frames were shot on. Finishing before stop 2 is
+ * what hides the seam around those opaque frames.
  */
-export function studioFade(p: number): number {
-  return span(p, BEATS.assembleEnd - 0.14, BEATS.assembleEnd - 0.01);
+export function studioFade(stop: number): number {
+  return span(stop, 1.55, 1.95);
+}
+
+/**
+ * The closing beat starts framed to match the burger it takes over from, then
+ * settles into its own centred framing — the box is far wider than the burger.
+ */
+export function finaleSettle(stop: number): number {
+  const t = span(stop, 2, 2.7);
+  return t * t * (3 - 2 * t); // smoothstep
+}
+
+/** the headline clears out as the burger starts to come apart */
+export function introFade(stop: number): number {
+  return 1 - span(stop, 0.05, 0.55);
+}
+
+/** "Sloj po sloj." — up while the layers are apart */
+export function layersTitle(stop: number): number {
+  return Math.min(span(stop, 0.35, 0.8), 1 - span(stop, 1.25, 1.6));
+}
+
+/** "Sve na svom mjestu." — up once it is whole again */
+export function wholeTitle(stop: number): number {
+  return Math.min(span(stop, 1.5, 1.85), 1 - span(stop, 2.15, 2.45));
+}
+
+/** how strongly the ingredient labels are showing */
+export function labelReveal(stop: number, index: number): number {
+  // staggered, but all six are fully up by the time the stop is reached
+  const inAt = 0.38 + index * 0.045;
+  return Math.min(span(stop, inAt, inAt + 0.25), 1 - span(stop, 1.15, 1.45));
+}
+
+/** how far the red menu panel has risen */
+export function menuWipe(stop: number): number {
+  return span(stop, 3.15, 4);
 }
 
 /**
@@ -135,13 +156,7 @@ export function layerAnchor(frame: number, layer: number): LayerAnchor {
   return { top: lerp(a[0], b[0], t), left: lerp(a[1], b[1], t), right: lerp(a[2], b[2], t) };
 }
 
-/** how strongly the ingredient labels are showing at this point in the story */
-export function labelReveal(p: number, index: number): number {
-  const inAt = 0.26 + index * 0.016;
-  return Math.min(span(p, inAt, inAt + 0.09), 1 - span(p, BEATS.studyEnd - 0.03, BEATS.studyEnd + 0.04));
-}
-
-/** how far the red menu panel has risen over the story */
-export function menuWipe(p: number): number {
-  return span(p, BEATS.boxingEnd + 0.01, 1);
+/** which stop the phase counter should read, 1-based */
+export function stopLabel(stop: number): number {
+  return Math.min(LAST_STOP, Math.round(stop)) + 1;
 }

@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 
 import FrameSequence from "./FrameSequence";
 import {
-  BEATS, BURGER_SEQUENCE, FINALE_BACKDROP, FINALE_OFFSET, FINALE_SCALE, FINALE_SEQUENCE,
-  finaleFrameForProgress, finaleSettle, finaleTakeover, frameForProgress, labelReveal,
-  layerAnchor, menuWipe, studioFade,
+  BURGER_SEQUENCE, FINALE_BACKDROP, FINALE_OFFSET, FINALE_SCALE, FINALE_SEQUENCE, LAST_STOP,
+  finaleFrameForStop, finaleSettle, finaleTakeover, frameForStop, introFade, labelReveal,
+  layerAnchor, layersTitle, menuWipe, stopForProgress, stopLabel, studioFade, wholeTitle,
 } from "./burgerStory";
 
 type Lang = "bs" | "en";
@@ -84,7 +84,12 @@ export default function Home() {
   const [lang, setLang] = useState<Lang>("bs");
   const [category, setCategory] = useState<Category>("all");
   const [scrolled, setScrolled] = useState(false);
-  const [storyProgress, setStoryProgress] = useState(0);
+  // `target` is where the scroll says we should be; `stop` is where the
+  // animation actually is, easing toward it on its own clock.
+  const [stop, setStop] = useState(0);
+  const targetRef = useRef(0);
+  const stopRef = useRef(0);
+  const easeRef = useRef(0);
   const storyRef = useRef<HTMLElement>(null);
   const burgerRef = useRef<HTMLDivElement>(null);
   // the closing beat is sized against the burger it takes over from, so it has
@@ -122,36 +127,130 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    let ticking = false;
-    const onScroll = () => {
+    // Scroll only chooses a destination. A separate loop eases the animation
+    // toward it, so playback stays smooth however coarsely the wheel is turned
+    // and however far a single flick jumps.
+    const ease = () => {
+      easeRef.current = 0;
+      const gap = targetRef.current - stopRef.current;
+      if (Math.abs(gap) < 0.002) {
+        if (stopRef.current !== targetRef.current) {
+          stopRef.current = targetRef.current;
+          setStop(targetRef.current);
+        }
+        return;
+      }
+      stopRef.current += gap * 0.16;
+      setStop(stopRef.current);
+      easeRef.current = requestAnimationFrame(ease);
+    };
+    const kick = () => {
+      if (!easeRef.current) easeRef.current = requestAnimationFrame(ease);
+    };
+
+    const read = () => {
       setScrolled(window.scrollY > 40);
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          const section = storyRef.current;
-          if (section) {
-            const rect = section.getBoundingClientRect();
-            const distance = section.offsetHeight - window.innerHeight;
-            setStoryProgress(Math.max(0, Math.min(1, -rect.top / Math.max(1, distance))));
-          }
-          ticking = false;
-        });
-        ticking = true;
+      const section = storyRef.current;
+      if (!section) return;
+      const rect = section.getBoundingClientRect();
+      const distance = section.offsetHeight - window.innerHeight;
+      targetRef.current = stopForProgress(-rect.top / Math.max(1, distance));
+      kick();
+    };
+
+    // Snap lands the scroll on a stop; jumping straight there avoids easing
+    // toward a destination the browser is still animating past.
+    read();
+    stopRef.current = targetRef.current;
+    setStop(targetRef.current);
+
+    window.addEventListener("scroll", read, { passive: true });
+    window.addEventListener("resize", read);
+    return () => {
+      window.removeEventListener("scroll", read);
+      window.removeEventListener("resize", read);
+      if (easeRef.current) cancelAnimationFrame(easeRef.current);
+      easeRef.current = 0;
+    };
+  }, []);
+
+  // One gesture, one stop. Snapping alone goes to the *nearest* point, so a
+  // single wheel notch would fall back to the stop it started from; this takes
+  // the gesture and moves a whole stop. It only binds while the story fills the
+  // viewport, and hands the gesture back at either end so the page scrolls on.
+  useEffect(() => {
+    const section = storyRef.current;
+    if (!section) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let lastAt = 0;
+    let touchY = 0;
+
+    const filling = () => {
+      const r = section.getBoundingClientRect();
+      return r.top <= 1 && r.bottom >= window.innerHeight - 1;
+    };
+    const indexNow = () =>
+      Math.round((window.scrollY - section.offsetTop) / Math.max(1, window.innerHeight));
+
+    const go = (dir: number) => {
+      const next = indexNow() + dir;
+      if (next < 0 || next > LAST_STOP) return false; // let the page have it
+      window.scrollTo({
+        top: section.offsetTop + next * window.innerHeight,
+        behavior: reduced.matches ? "auto" : "smooth",
+      });
+      return true;
+    };
+
+    const take = (dir: number, e: Event) => {
+      const now = performance.now();
+      if (now - lastAt < 640) {
+        e.preventDefault(); // swallow the tail of a flick so it moves one stop
+        return;
+      }
+      if (go(dir)) {
+        e.preventDefault();
+        lastAt = now;
       }
     };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
+
+    const onWheel = (e: WheelEvent) => {
+      if (!filling() || Math.abs(e.deltaY) < 2) return;
+      take(e.deltaY > 0 ? 1 : -1, e);
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      touchY = e.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!filling()) return;
+      const dy = touchY - (e.touches[0]?.clientY ?? 0);
+      if (Math.abs(dy) < 24) return;
+      take(dy > 0 ? 1 : -1, e);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (!filling()) return;
+      const down = e.key === "ArrowDown" || e.key === "PageDown" || e.key === " ";
+      const up = e.key === "ArrowUp" || e.key === "PageUp";
+      if (down || up) take(down ? 1 : -1, e);
+    };
+
+    window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    window.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("keydown", onKey);
     };
   }, []);
 
   const shown = category === "all" ? items : items.filter((item) => item.category === category);
-  const frame = frameForProgress(storyProgress);
-  const finaleFrame = finaleFrameForProgress(storyProgress);
-  const boxed = finaleTakeover(storyProgress);
-  const settle = finaleSettle(storyProgress);
+  const frame = frameForStop(stop);
+  const finaleFrame = finaleFrameForStop(stop);
+  const boxed = finaleTakeover(stop);
+  const settle = finaleSettle(stop);
   const mix = (a: number, b: number) => a + (b - a) * settle;
   // starts matched to the burger's framing, ends centred and fitted. The frame
   // is square, so the width bound matters as much as the height one on a phone.
@@ -160,8 +259,8 @@ export default function Home() {
     Math.min(stage.viewportH * 0.84, stage.viewportW * 0.94, 760),
   );
   const finaleY = mix(FINALE_OFFSET * stage.burgerH, 0);
-  const studio = studioFade(storyProgress);
-  const wipe = menuWipe(storyProgress);
+  const studio = studioFade(stop);
+  const wipe = menuWipe(stop);
 
   return (
     <main>
@@ -178,20 +277,25 @@ export default function Home() {
       </nav>
 
       <section className="scroll-story" id="top" ref={storyRef}>
+        {/* One marker per stop. These are what the browser snaps to, so a
+            single gesture moves exactly one phase of the story. */}
+        <div className="story-stops" aria-hidden="true">
+          {Array.from({ length: LAST_STOP + 1 }, (_, i) => <div key={i} className="story-stop" />)}
+        </div>
         <div className="story-sticky">
           {/* settles the stage to the flat colour the closing frames were shot
               on, so those opaque frames have no visible edge */}
           <div className="story-studio" style={{ background: FINALE_BACKDROP, opacity: studio }} aria-hidden="true" />
           <div className="story-grid" aria-hidden="true" style={{ opacity: 1 - studio }} />
-          <header className="story-intro" style={{ opacity: Math.max(0, 1 - storyProgress / BEATS.introEnd), transform: `translateY(${storyProgress * -90}px)` }}>
+          <header className="story-intro" style={{ opacity: introFade(stop), transform: `translateY(${Math.min(stop, 1) * -70}px)` }}>
             <p className="eyebrow"><span /> {t.open}</p>
             <h1>{t.headline[0]}<br />{t.headline[1]}</h1>
             <p>{t.intro}</p>
           </header>
-          <div className="story-title ingredients-title" style={{ opacity: Math.max(0, Math.min(1, (storyProgress - .22) * 7, (BEATS.studyEnd + .02 - storyProgress) * 7)) }}>
+          <div className="story-title ingredients-title" style={{ opacity: layersTitle(stop) }}>
             <p>{t.nothingHidden}</p><h2>{t.layerByLayer}</h2>
           </div>
-          <div className="story-title finish-title" style={{ opacity: Math.max(0, Math.min(1, (storyProgress - BEATS.studyEnd - .03) * 8, (BEATS.assembleEnd + .05 - storyProgress) * 8)) }}>
+          <div className="story-title finish-title" style={{ opacity: wholeTitle(stop) }}>
             <p>{t.simple}</p><h2>{t.inPlace}</h2>
           </div>
           <div className="story-halo" style={{ opacity: 1 - studio }} />
@@ -204,7 +308,7 @@ export default function Home() {
               still={{ avif: "/burger-still.avif", fallback: "/burger-still.webp" }}
             />
             {t.ingredientLabels.map((label, index) => {
-              const reveal = labelReveal(storyProgress, index);
+              const reveal = labelReveal(stop, index);
               const at = layerAnchor(frame, index);
               return (
                 <div
@@ -245,9 +349,9 @@ export default function Home() {
           <div className="story-wipe" style={{ transform: `translateY(${(1 - wipe) * 100}%)` }}>
             <span style={{ transform: `translateY(${(1 - wipe) * 70}px) scale(${.88 + wipe * .12})`, opacity: wipe }}>{t.menu.toUpperCase()}</span>
           </div>
-          <div className="story-progress"><span style={{ height: `${storyProgress * 100}%` }} /></div>
-          <div className="story-phase"><strong>{storyProgress < BEATS.introEnd ? "01" : storyProgress < BEATS.studyEnd ? "02" : "03"}</strong><span>/ 03</span></div>
-          <p className="story-step">{storyProgress < BEATS.introEnd ? t.scrollOpen : storyProgress < BEATS.explodeEnd ? t.ingredientsStep : storyProgress < BEATS.assembleEnd ? t.assembling : t.menuBelow}</p>
+          <div className="story-progress"><span style={{ height: `${(stop / LAST_STOP) * 100}%` }} /></div>
+          <div className="story-phase"><strong>{String(stopLabel(stop)).padStart(2, "0")}</strong><span>/ 0{LAST_STOP + 1}</span></div>
+          <p className="story-step">{stop < 0.5 ? t.scrollOpen : stop < 1.5 ? t.ingredientsStep : stop < 2.5 ? t.assembling : t.menuBelow}</p>
         </div>
       </section>
 

@@ -9,7 +9,7 @@
 /* ---------- base ---------- */
 :root{--blue:#082e68;--red:#d80d16;--cream:#f2ead8;--gold:#d7b767;--ink:#11120f}
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
+html{scroll-behavior:smooth;scroll-snap-type:y proximity}
 body{margin:0;background:var(--cream);color:var(--ink);overflow-x:hidden;font-family:Archivo,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 a{text-decoration:none;color:inherit}
 button{font:inherit}
@@ -44,7 +44,10 @@ button{font:inherit}
    Height sets how much scrolling the whole burger sequence takes. The frame
    sequence itself carries no dead time, so this is the only timing knob;
    the beat boundaries live in app/burgerStory.ts. */
-.scroll-story{height:380vh;background:#03162f;color:#fff;position:relative}
+/* one viewport per stop; the markers below are what the scroll snaps to */
+.scroll-story{height:500svh;background:#03162f;color:#fff;position:relative}
+.story-stops{position:absolute;inset:0;pointer-events:none}
+.story-stop{height:100svh;scroll-snap-align:start;scroll-snap-stop:always}
 .story-sticky{height:100svh;position:sticky;top:0;overflow:hidden;background:radial-gradient(circle at 54% 50%,#0a58a5 0,#073a78 31%,#041d42 67%,#031329 100%)}
 .story-sticky:after{content:"";position:absolute;z-index:6;inset:0;pointer-events:none;background:linear-gradient(90deg,#021229aa 0,transparent 28%,transparent 72%,#02122988 100%),linear-gradient(0deg,#020b18a8,transparent 25%,transparent 75%,#020b1880)}
 .story-grid{position:absolute;z-index:2;inset:0;background-image:linear-gradient(#ffffff07 1px,transparent 1px),linear-gradient(90deg,#ffffff07 1px,transparent 1px);background-size:70px 70px;mask-image:radial-gradient(circle,black,transparent 72%)}
@@ -163,7 +166,6 @@ footer{background:#071b36;color:#fff;display:flex;align-items:center;justify-con
 @media(max-width:900px){
   .nav-actions{gap:8px}
   .lang-switch button{min-width:32px;height:32px;padding:0 7px}
-  .scroll-story{height:340vh}
   .story-intro,.story-title{max-width:88vw}
   .story-intro{left:0;top:14%;width:100%;text-align:center}
   .story-intro .eyebrow{justify-content:center}
@@ -190,7 +192,6 @@ footer{background:#071b36;color:#fff;display:flex;align-items:center;justify-con
   .nav-call{padding:10px 16px}
   .lang-switch{padding:2px}
   .lang-switch button{min-width:29px;height:29px;padding:0 6px;font-size:9px}
-  .scroll-story{height:320vh}
   /* small enough that the edge-pinned labels clear the food */
   .story-sticky{--burger-h:min(42vh,330px)}
   .story-burger,.story-finale{top:56%}
