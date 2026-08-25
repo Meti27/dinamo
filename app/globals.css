@@ -59,11 +59,13 @@ button{font:inherit}
 /* the burger box is the burger's own bounding box, so label rows line up with
    the layer centres reported by the sequence manifest */
 .story-sticky{--burger-h:min(76vh,650px)}
-.story-burger{position:absolute;z-index:6;left:54%;top:50%;height:var(--burger-h);transform:translate(-50%,-50%);transition:opacity .18s linear}
+.story-burger{position:absolute;z-index:6;left:54%;top:50%;height:var(--burger-h);transform:translate(-50%,-50%)}
 /* the closing beat sits on the same anchor point; its size and nudge come from
    the two sequences' measured anchors so its first frame lands exactly on the
    burger the previous beat ended on */
-.story-finale{position:absolute;z-index:6;left:54%;top:50%;aspect-ratio:1;transition:opacity .18s linear}
+/* swapped outright, not cross-faded: the two beats are aligned to share
+   the same burger at the handoff, so blending them only doubles it */
+.story-finale{position:absolute;z-index:6;left:54%;top:50%;aspect-ratio:1}
 /* these frames are opaque and carry their own shadow — a drop-shadow here would
    trace the canvas rectangle instead of the box inside it */
 .story-finale .burger-media{filter:none}

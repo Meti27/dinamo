@@ -101,10 +101,22 @@ export default function FrameSequence({
     const img = images[i];
     if (!img || i === drawnRef.current) return;
 
+    // Size the backing store from the frame, never from the element. Assigning
+    // canvas.width/height blanks the canvas, and the closing beat animates its
+    // element size every scroll tick — tracking that meant clearing on each
+    // tick and repainting a frame later, which reads as a flicker. CSS scales
+    // the element instead; the frames are authored at display resolution.
+    const w = "width" in img ? (img.width as number) : canvas.width;
+    const h = "height" in img ? (img.height as number) : canvas.height;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
     drawnRef.current = i;
   };
 
@@ -204,27 +216,6 @@ export default function FrameSequence({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [narrow, showStill, source.dir]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || showStill) return;
-    const resize = () => {
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const w = Math.round(canvas.clientWidth * dpr);
-      const h = Math.round(canvas.clientHeight * dpr);
-      if (w && h && (canvas.width !== w || canvas.height !== h)) {
-        canvas.width = w;
-        canvas.height = h;
-        drawnRef.current = -1;
-        schedule();
-      }
-    };
-    resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
-    return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showStill]);
 
   if (showStill) {
     return (

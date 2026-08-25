@@ -1,3 +1,42 @@
+### [2026-08-25] Fixed the closing-beat flicker; reshot it on a model that holds detail
+
+**Changes:** Two problems with the closing beat, one a bug and one a model choice.
+
+- **The flicker was a canvas bug, not a frame-count problem.** `FrameSequence`
+  sized the canvas backing store from the *element*, and the closing beat
+  animates that element's size on every scroll tick. Assigning `canvas.width`
+  blanks the canvas, and the repaint landed a frame later — so every tick of the
+  settle cleared and repainted. The backing store now comes from the frame
+  itself and stays constant (verified: 720x720 across the whole settle); CSS
+  scales the element. Also stopped cross-fading the two canvases — they are
+  built to coincide at the handoff, so blending them only doubled the burger.
+- **Reshot the beat on `minimax_h3` at 2K** (20 credits) after comparing frames
+  against the source: Kling was smoothing the food away — sesame seeds gone off
+  the bun, char gone off the patty — by ~frame 10. minimax holds both. Since the
+  layer beat is crisp, drifting into a crisp burger reads far better than
+  drifting into a soft one. Bumped 28 -> 38 desktop frames (20 -> 26 mobile)
+  while there; opaque frames are cheap, so the beat is 746 KB.
+
+**Files:** `app/FrameSequence.tsx`, `app/globals.css`,
+`scripts/build-finale-sequence.py`, `app/finaleFrames.ts` (generated),
+`public/finale-seq/`, `assets/source/burger-boxing.mp4`
+
+**Decisions:**
+- `minimax_h3` will not accept `image_references` alongside `start_image`/
+  `end_image`, and the keyframes are what make the handoff work, so identity is
+  pinned by the start frame alone. Its 2K output is what preserves the detail.
+- Kept the layer beat on the original clip. Regenerating it would make the whole
+  story consistent, which is the ask, but the evidence says the generated burger
+  differs from the one the site ships today — so that is the user's call, not a
+  silent substitution.
+
+**TODOs:**
+- The burger still visibly re-renders across the handoff: minimax redraws it in
+  its own hand (seeds larger, proportions slightly different). Closing that gap
+  properly means regenerating the layer beat from the same model, ~42 credits.
+- Pre-existing: `npm test` fails on the host-injected `codex-preview` assertion;
+  one lint error at `app/page.tsx:102`.
+
 ### [2026-08-25] Added the boxing finale, and set the site in a real typeface
 
 **Changes:** The scroll story now ends with the reassembled burger settling into
