@@ -1,3 +1,60 @@
+### [2026-08-25] Fixed what was actually making the scroll story glitch
+
+**Changes:** The previous commit snapped the story to five stops so the animation
+would play rather than be dragged, but it did not actually achieve that, and four
+independent per-frame costs were left in place.
+
+- **The stop jump was still animated.** `go()` scrolled with `behavior: "smooth"`
+  while `read()` was bound to `scroll`, so the target moved on every scroll event
+  *during the browser's own scroll animation* — the tween chased a moving target
+  and every hitch in that scroll (which also fights scroll-snap) landed in the
+  burger. The stage is `position: sticky`, so scrolling inside the story moves
+  nothing on screen; the jump is now instant and the tween is the sole animator.
+  Note `behavior: "auto"` is **not** instant — it defers to the element's
+  `scroll-behavior`, which is `smooth` here for the nav anchors. It has to be
+  `behavior: "instant"`, which is what actually fixed it.
+- **The easing was frame-rate dependent.** `stopRef += gap * 0.16` per frame
+  converges twice as fast on a 120Hz display as on 60Hz, and lurches then crawls.
+  Replaced with a 650ms `performance.now()` tween on easeInOutCubic that lands
+  exactly on target and retargets from wherever it is mid-flight.
+- **A blur was being re-derived every frame.** `.burger-media` carried
+  `drop-shadow(0 24px 24px …)` over a canvas that repaints every frame, so the
+  browser re-blurred its alpha each time. Removed; the frames already carry the
+  source's own contact shadows, and a static `.story-ground` ellipse supplies the
+  grounding for free.
+- **The whole page re-rendered 60x a second.** `stop` lived in `Home`, so every
+  tween frame reconciled the nav, the 14-card menu grid, the location block and
+  the footer. The story is now `app/ScrollStory.tsx` and owns that state; the rest
+  of the page are siblings that no longer re-render while it animates.
+- **The labels fought their own animation.** `.ingredient-label` had
+  `transition: opacity .12s` while opacity is written inline every frame, so the
+  browser was always interpolating toward a value that had already moved —
+  visible as smearing. Removed, along with six permanent `will-change` layers.
+- Reassembly re-exported denser, 12 -> 20 desktop and 9 -> 14 mobile: at 650ms a
+  transition is ~39 display frames, so 12 source frames were held ~3.3 frames
+  each, which was the visible stepping. `public/` 3.58 -> 4.02 MB.
+
+**Files:** `app/ScrollStory.tsx` (new), `app/page.tsx`, `app/globals.css`,
+`scripts/build-burger-sequence.py`, `app/burgerFrames.ts` (generated),
+`public/burger-seq/`
+
+**Decisions:**
+- Kept CSS scroll-snap under the gesture handler as a fallback for scrollbar
+  drags; with instant jumps landing exactly on snap points it never re-adjusts.
+- `ASSEMBLED_ANCHOR` is unchanged by the re-export, so the closing beat's
+  alignment with the burger still holds without retuning.
+
+**Verified:** one gesture moves exactly one stop; a burst of three wheel events
+still moves one; up at stop 1 and down at stop 5 pass through to the page rather
+than trapping. Stops rest clean.
+
+**TODOs:**
+- Pre-existing: `npm test` fails on the host-injected `codex-preview` assertion;
+  one lint error at `app/page.tsx:91` (setState in an effect for the localStorage
+  language restore).
+- The burger still re-renders at the handoff into the box — generation-side, and
+  unrelated to smoothness.
+
 ### [2026-08-25] Scroll story moved from continuous scrubbing to fixed stops
 
 **Changes:** The story was scrubbed straight from scroll position, so every

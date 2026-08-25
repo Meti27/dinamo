@@ -73,10 +73,15 @@ button{font:inherit}
    trace the canvas rectangle instead of the box inside it */
 .story-finale .burger-media{filter:none}
 .story-studio{position:absolute;z-index:1;inset:0;pointer-events:none}
-.burger-media{display:block;width:100%;height:100%;opacity:0;transition:opacity .45s ease;filter:drop-shadow(0 24px 24px #00142c70);user-select:none;pointer-events:none}
+/* static stand-in for the drop-shadow the canvas used to carry */
+.story-ground{position:absolute;z-index:5;left:54%;bottom:9%;width:min(30vw,340px);height:52px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(ellipse,#00101f8c 0,#00101f45 45%,transparent 72%);filter:blur(9px);pointer-events:none}
+/* No drop-shadow here: the canvas repaints every frame, so a filter would have
+   the browser re-blur its alpha every frame. The frames carry the source's own
+   contact shadows already; .story-ground supplies the grounding under them. */
+.burger-media{display:block;width:100%;height:100%;opacity:0;transition:opacity .45s ease;user-select:none;pointer-events:none}
 .burger-media.ready,img.burger-media{opacity:1}
 
-.ingredient-label{position:absolute;z-index:9;width:235px;will-change:opacity,transform;transition:opacity .12s linear;text-shadow:0 2px 12px #001936}
+.ingredient-label{position:absolute;z-index:9;width:235px;text-shadow:0 2px 12px #001936}
 .ingredient-label:before{content:"";position:absolute;top:12px;width:46px;height:1px;background:var(--gold);box-shadow:0 0 10px var(--gold)}
 .ingredient-label span{position:absolute;top:-2px;color:var(--gold);font-size:10px;font-weight:900;letter-spacing:.12em}
 .ingredient-label strong{display:block;font-size:17px;line-height:1.1}
@@ -173,6 +178,7 @@ footer{background:#071b36;color:#fff;display:flex;align-items:center;justify-con
   .story-halo{left:50%;top:56%;width:80vw}
   .story-sticky{--burger-h:min(58vh,470px)}
   .story-burger,.story-finale{left:50%;top:56%}
+  .story-ground{left:50%;bottom:16%}
   .story-title{left:22px;bottom:4vh}
   .finish-title{left:auto;right:22px}
   .ingredient-label{width:175px}
@@ -195,6 +201,7 @@ footer{background:#071b36;color:#fff;display:flex;align-items:center;justify-con
   /* small enough that the edge-pinned labels clear the food */
   .story-sticky{--burger-h:min(42vh,330px)}
   .story-burger,.story-finale{top:56%}
+  .story-ground{bottom:22%;width:44vw;height:38px}
   .story-halo{top:56%}
   .story-intro{top:11%;padding:0 20px}
   .story-intro h1{font-size:14.5vw;margin:12px 0}
