@@ -1,3 +1,58 @@
+### [2026-08-25] Cross-faded frames, no React in the animation loop
+
+**Changes:** Two complaints — skipping frames on desktop, lag on phone. Neither
+was generation-limited, so no Higgsfield credits were spent on them.
+
+- **The skipping is gone, at zero payload cost.** The sequence is a few dozen
+  stills spread over several screens of scrolling, so snapping to the nearest
+  one held each for many display frames and the motion stepped. `FrameSequence`
+  now cross-dissolves the two frames a fractional position falls between.
+  It has to be a *linear* dissolve, not just painting the second over the first:
+  these frames carry alpha, so source-over leaves the outgoing burger fully
+  opaque underneath and you see two burgers. Drawing A at `1-t` then adding B at
+  `t` with `globalCompositeOperation = "lighter"` gives `A*(1-t) + B*t`, alpha
+  included. Verified: where a pixel has burger in A and not in B, naive
+  source-over leaves it at 253/255 while the dissolve correctly halves it to
+  128/255. Cost is two blits — measured 0.003ms per paint.
+- **React is out of the animation loop.** `stop` was state, so every frame
+  reconciled twenty-odd elements; on a mid-range phone that is the whole frame
+  budget. The loop now writes styles to refs directly and drives both sequences
+  through an imperative `setFrame` handle. React only builds the structure and
+  swaps copy on a language change. Labels skip their geometry entirely while
+  invisible, which is most of the story.
+- **Fixed a mobile-only stutter.** Progress was `-rect.top / (offsetHeight -
+  window.innerHeight)`, mixing an `svh`-sized section with `innerHeight`, which
+  *grows as a phone's URL bar collapses*. The denominator moved mid-scroll, so
+  progress jumped. It now measures the sticky stage, which is `svh` and stable.
+- Frames raised: burger 42 -> 56 desktop, 29 -> 35 mobile; finale 38 -> 52 and
+  26 -> 32. Cross-fading works better the smaller the gap between neighbours.
+- Promoted the three continuously-fading decorative layers with
+  `will-change: opacity` so their blur and mask rasterise once instead of every
+  frame, and dropped `.story-grid:after` on phones — two 25vh spread shadows is
+  a lot of paint for decoration.
+
+**Browser compatibility:** added `vh` fallbacks ahead of every `svh` (Safari
+<15.4 and Chrome <108 drop the whole declaration, which would leave the sticky
+stage with no height) and a `-webkit-mask-image` prefix for older WebKit. The
+runtime surface is `createImageBitmap` (with an `Image` fallback),
+`ResizeObserver`, `matchMedia` and `globalCompositeOperation` — all long-standing.
+AVIF failure still falls back to the still image.
+
+**Files:** `app/FrameSequence.tsx`, `app/ScrollStory.tsx`, `app/globals.css`,
+both `scripts/build-*-sequence.py`, generated `app/burgerFrames.ts`,
+`app/finaleFrames.ts`, `public/burger-seq/`, `public/finale-seq/`
+
+**Payload:** desktop sequences 3214 KB, mobile 922 KB, `public/` 4.97 MB.
+
+**TODOs:**
+- Pre-existing: `npm test` fails on the host-injected `codex-preview` assertion;
+  one lint error at `app/page.tsx:91`.
+- At 360px wide the outer ingredient labels still graze the burger — a genuine
+  space constraint at that width, not a regression.
+- The burger still re-renders across the handoff into the box. That one *is*
+  generation-side and is what credits could buy; not attempted here because the
+  reported problems were not.
+
 ### [2026-08-25] Reverted the snapped stops; continuous scroll with a speed limit
 
 **Changes:** The snapped-stop version read worse than what it replaced — the

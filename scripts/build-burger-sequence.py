@@ -35,8 +35,8 @@ SEQ = os.path.join(ROOT, "public/burger-seq")
 # --- output shape -----------------------------------------------------------
 DESKTOP_W, DESKTOP_Q = 480, 48
 MOBILE_W, MOBILE_Q = 340, 44
-N_EXPLODE, N_REASSEMBLE = 22, 20
-N_EXPLODE_MOBILE, N_REASSEMBLE_MOBILE = 15, 14
+N_EXPLODE, N_REASSEMBLE = 30, 26
+N_EXPLODE_MOBILE, N_REASSEMBLE_MOBILE = 19, 16
 
 # --- matte tuning -----------------------------------------------------------
 OBJ_LO, OBJ_HI = 16.0, 46.0   # object knee, as RGB distance from the backdrop

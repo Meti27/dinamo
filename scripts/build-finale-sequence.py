@@ -34,8 +34,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "assets/source/burger-boxing.mp4")
 OUT = os.path.join(ROOT, "public/finale-seq")
 
-DESKTOP_W, DESKTOP_Q, DESKTOP_N = 720, 52, 38
-MOBILE_W, MOBILE_Q, MOBILE_N = 460, 48, 26
+DESKTOP_W, DESKTOP_Q, DESKTOP_N = 720, 52, 52
+MOBILE_W, MOBILE_Q, MOBILE_N = 460, 48, 32
 STILL_HOLD = 1.2          # frame-to-frame delta below this counts as a static hold
 
 

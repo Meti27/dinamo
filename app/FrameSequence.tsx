@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  forwardRef, useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore,
+} from "react";
 
 /**
  * A scroll-scrubbed image sequence drawn onto a canvas.
@@ -9,6 +11,10 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
  * previous keyframe on every scroll tick, which janks everywhere and does not
  * work at all on iOS Safari. Blitting an already-decoded frame costs nothing,
  * so the picture tracks the scrollbar exactly — on a phone as much as a desktop.
+ *
+ * The frame is set imperatively rather than passed as a prop: the animation
+ * runs at display rate, and re-rendering React sixty times a second to move a
+ * number is the single most expensive thing a page like this can do.
  */
 
 export type SequenceSource = {
@@ -35,10 +41,13 @@ export type SequenceSource = {
   startDelayMs?: number;
 };
 
+export type FrameSequenceHandle = {
+  /** position in the sequence, over the DESKTOP frame count; fractions blend */
+  setFrame: (frame: number) => void;
+};
+
 type Props = {
   source: SequenceSource;
-  /** position in the sequence, as a float over the DESKTOP frame count */
-  frame: number;
   className?: string;
   style?: React.CSSProperties;
   label?: string;
@@ -75,15 +84,21 @@ async function fetchFrame(url: string): Promise<CanvasImageSource> {
   });
 }
 
-export default function FrameSequence({
-  source, frame, className, style, label, still,
-}: Props) {
+const sizeOf = (img: CanvasImageSource, fallbackW: number, fallbackH: number) => ({
+  w: "width" in img ? (img.width as number) : fallbackW,
+  h: "height" in img ? (img.height as number) : fallbackH,
+});
+
+const FrameSequence = forwardRef<FrameSequenceHandle, Props>(function FrameSequence(
+  { source, className, style, label, still }, ref,
+) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imagesRef = useRef<(CanvasImageSource | undefined)[] | null>(null);
-  const toIndexRef = useRef<(f: number) => number>(() => 0);
-  const frameRef = useRef(frame);
+  /** maps a desktop-space frame position onto this variant's own index space */
+  const scaleRef = useRef<(f: number) => number>((f) => f);
+  const countRef = useRef(0);
+  const wantRef = useRef(0);
   const drawnRef = useRef(-1);
-  const rafRef = useRef(0);
 
   const reducedMotion = useMediaQuery(REDUCED_MOTION);
   const narrow = useMediaQuery(MOBILE_QUERY);
@@ -91,24 +106,43 @@ export default function FrameSequence({
   const [ready, setReady] = useState(false);
   const showStill = reducedMotion || unsupported;
 
-  const draw = () => {
-    rafRef.current = 0;
+  /**
+   * Draw the frame, blending the two it falls between.
+   *
+   * Snapping to the nearest frame is what reads as "skipping": the sequence is
+   * a few dozen stills spread over several screens of scrolling, so each one is
+   * held for many display frames and the motion steps. Cross-dissolving the two
+   * neighbours turns the same stills into continuous movement for free.
+   *
+   * It has to be a real linear dissolve, not just drawing the second on top:
+   * these frames have alpha, and painting B over A leaves A's burger fully
+   * opaque underneath, so you would see two burgers rather than one moving.
+   * Drawing A at 1-t and adding B at t gives A*(1-t) + B*t, alpha included.
+   */
+  const paint = () => {
     const canvas = canvasRef.current;
     const images = imagesRef.current;
     if (!canvas || !images) return;
 
-    const i = toIndexRef.current(frameRef.current);
-    const img = images[i];
-    if (!img || i === drawnRef.current) return;
+    const count = countRef.current;
+    const pos = Math.max(0, Math.min(count - 1, scaleRef.current(wantRef.current)));
+    const lo = Math.floor(pos);
+    const hi = Math.min(count - 1, lo + 1);
+    const t = pos - lo;
 
-    // Size the backing store from the frame, never from the element. Assigning
-    // canvas.width/height blanks the canvas, and the closing beat animates its
-    // element size every scroll tick — tracking that meant clearing on each
-    // tick and repainting a frame later, which reads as a flicker. CSS scales
-    // the element instead; the frames are authored at display resolution.
-    const w = "width" in img ? (img.width as number) : canvas.width;
-    const h = "height" in img ? (img.height as number) : canvas.height;
+    const a = images[lo];
+    if (!a) return;
+    const b = images[hi];
+
+    // quantised so an unchanged blend does not repaint
+    const signature = lo * 1000 + Math.round(t * 60);
+    if (signature === drawnRef.current) return;
+
+    const { w, h } = sizeOf(a, canvas.width, canvas.height);
     if (canvas.width !== w || canvas.height !== h) {
+      // Assigning width/height blanks the canvas, so it is sized from the frame
+      // and never from the element — the closing beat animates its element size
+      // every frame, and tracking that meant clearing on every one of them.
       canvas.width = w;
       canvas.height = h;
     }
@@ -116,23 +150,30 @@ export default function FrameSequence({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(img, 0, 0, w, h);
-    drawnRef.current = i;
+
+    if (!b || t < 0.002 || b === a) {
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.drawImage(a, 0, 0, w, h);
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1 - t;
+      ctx.drawImage(a, 0, 0, w, h);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = t;
+      ctx.drawImage(b, 0, 0, w, h);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    }
+    drawnRef.current = signature;
   };
 
-  const schedule = () => {
-    if (!rafRef.current) rafRef.current = requestAnimationFrame(draw);
-  };
-
-  // after every render, publish the requested frame and repaint if it moved
-  useEffect(() => {
-    frameRef.current = frame;
-    schedule();
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = 0;
-    };
-  });
+  useImperativeHandle(ref, () => ({
+    setFrame: (frame: number) => {
+      wantRef.current = frame;
+      paint();
+    },
+  }));
 
   useEffect(() => {
     if (showStill) return;
@@ -144,24 +185,23 @@ export default function FrameSequence({
     const mobile = window.matchMedia(MOBILE_QUERY).matches;
     const dir = mobile ? "mobile" : "desktop";
     const count = mobile ? source.mobileCount : source.desktopCount;
-    const span = source.desktopCount - 1;
+    const span = Math.max(1, source.desktopCount - 1);
 
+    countRef.current = count;
     const map = mobile ? source.mobileMap : undefined;
     if (map) {
-      const inverse = Array.from({ length: source.desktopCount }, (_, d) => {
-        let best = 0;
-        for (let m = 1; m < map.length; m++) {
-          if (Math.abs(map[m] - d) < Math.abs(map[best] - d)) best = m;
-        }
-        return best;
-      });
-      toIndexRef.current = (f: number) =>
-        inverse[Math.max(0, Math.min(source.desktopCount - 1, Math.round(f)))];
-    } else {
-      toIndexRef.current = (f: number) => {
-        const t = span > 0 ? Math.max(0, Math.min(1, f / span)) : 0;
-        return Math.max(0, Math.min(count - 1, Math.round(t * (count - 1))));
+      // the two variants are not sampled evenly, so interpolate the mapping
+      // rather than rounding to the nearest listed frame
+      scaleRef.current = (f: number) => {
+        const clamped = Math.max(0, Math.min(span, f));
+        let m = 0;
+        while (m < map.length - 2 && map[m + 1] <= clamped) m++;
+        const from = map[m];
+        const to = map[m + 1] ?? from;
+        return to === from ? m : m + (clamped - from) / (to - from);
       };
+    } else {
+      scaleRef.current = (f: number) => (f / span) * (count - 1);
     }
 
     const images: (CanvasImageSource | undefined)[] = new Array(count);
@@ -173,14 +213,15 @@ export default function FrameSequence({
       ? Math.max(1, Math.round((source.priorityUntil / source.desktopCount) * count))
       : count;
 
-    // A frame that fails to load is left undefined; draw() skips it and holds
-    // the previous one, which beats tearing down an otherwise working canvas.
+    // A frame that fails to load is left undefined; paint() holds the previous
+    // one, which beats tearing down an otherwise working canvas.
     const loadRange = async (from: number, to: number) => {
       for (let i = from; i < to; i++) {
         if (cancelled) return;
         try {
           images[i] = await fetchFrame(`/${source.dir}/${dir}/f${String(i).padStart(3, "0")}.avif`);
-          schedule();
+          drawnRef.current = -1;
+          paint();
         } catch {
           /* keep going */
         }
@@ -201,7 +242,7 @@ export default function FrameSequence({
       }
       if (cancelled) return;
       setReady(true);
-      schedule();
+      paint();
       await loadRange(1, priority);
       if (cancelled) return;
       await loadRange(priority, count);
@@ -235,4 +276,6 @@ export default function FrameSequence({
       aria-label={label}
     />
   );
-}
+});
+
+export default FrameSequence;

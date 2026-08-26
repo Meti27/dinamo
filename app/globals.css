@@ -47,17 +47,17 @@ button{font:inherit}
 /* One viewport per beat of the story. More height means the animation advances
    more slowly per pixel scrolled, which is itself part of what keeps it smooth;
    the speed limit in ScrollStory.tsx handles the rest. */
-.scroll-story{height:500svh;background:#03162f;color:#fff;position:relative}
-.story-sticky{height:100svh;position:sticky;top:0;overflow:hidden;background:radial-gradient(circle at 54% 50%,#0a58a5 0,#073a78 31%,#041d42 67%,#031329 100%)}
+.scroll-story{height:500vh;height:500svh;background:#03162f;color:#fff;position:relative}
+.story-sticky{height:100vh;height:100svh;position:sticky;top:0;overflow:hidden;background:radial-gradient(circle at 54% 50%,#0a58a5 0,#073a78 31%,#041d42 67%,#031329 100%)}
 .story-sticky:after{content:"";position:absolute;z-index:6;inset:0;pointer-events:none;background:linear-gradient(90deg,#021229aa 0,transparent 28%,transparent 72%,#02122988 100%),linear-gradient(0deg,#020b18a8,transparent 25%,transparent 75%,#020b1880)}
-.story-grid{position:absolute;z-index:2;inset:0;background-image:linear-gradient(#ffffff07 1px,transparent 1px),linear-gradient(90deg,#ffffff07 1px,transparent 1px);background-size:70px 70px;mask-image:radial-gradient(circle,black,transparent 72%)}
+.story-grid{position:absolute;z-index:2;inset:0;will-change:opacity;background-image:linear-gradient(#ffffff07 1px,transparent 1px),linear-gradient(90deg,#ffffff07 1px,transparent 1px);background-size:70px 70px;-webkit-mask-image:radial-gradient(circle,black,transparent 72%);mask-image:radial-gradient(circle,black,transparent 72%)}
 .story-grid:after{content:"";position:absolute;left:54%;top:50%;width:80vh;height:80vh;border:1px solid #ffffff10;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 0 12vh #ffffff05,0 0 0 25vh #ffffff04}
 .story-intro{position:absolute;z-index:7;left:5vw;top:50%;transform:translateY(-50%);will-change:transform,opacity}
 /* Archivo's caron on Č rises well past the cap height, so the line box has to
    stay open enough for it to clear the line above — .92 is the floor here. */
 .story-intro h1{font-size:clamp(64px,8.4vw,146px);line-height:.94;letter-spacing:-.05em;margin:20px 0;text-transform:uppercase;font-weight:900;text-shadow:0 12px 45px #0006}
 .story-intro>p:last-child{font-size:18px;color:#b9d1ee}
-.story-halo{position:absolute;z-index:3;left:54%;top:50%;width:44vw;max-width:620px;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,#1675d880 0,#0e55a930 40%,transparent 70%);filter:blur(14px);transform:translate(-50%,-50%)}
+.story-halo{position:absolute;z-index:3;will-change:opacity;left:54%;top:50%;width:44vw;max-width:620px;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,#1675d880 0,#0e55a930 40%,transparent 70%);filter:blur(14px);transform:translate(-50%,-50%)}
 
 /* the burger box is the burger's own bounding box, so label rows line up with
    the layer centres reported by the sequence manifest */
@@ -72,7 +72,7 @@ button{font:inherit}
 /* these frames are opaque and carry their own shadow — a drop-shadow here would
    trace the canvas rectangle instead of the box inside it */
 .story-finale .burger-media{filter:none}
-.story-studio{position:absolute;z-index:1;inset:0;pointer-events:none}
+.story-studio{position:absolute;z-index:1;inset:0;pointer-events:none;will-change:opacity}
 /* static stand-in for the drop-shadow the canvas used to carry */
 .story-ground{position:absolute;z-index:5;left:54%;bottom:9%;width:min(30vw,340px);height:52px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(ellipse,#00101f8c 0,#00101f45 45%,transparent 72%);filter:blur(9px);pointer-events:none}
 /* No drop-shadow here: the canvas repaints every frame, so a filter would have
@@ -176,6 +176,8 @@ footer{background:#071b36;color:#fff;display:flex;align-items:center;justify-con
   .story-intro .eyebrow{justify-content:center}
   .story-intro h1{font-size:clamp(56px,13vw,104px);margin:16px 0}
   .story-halo{left:50%;top:56%;width:80vw}
+  /* two 25vh spread shadows is a lot of paint for decoration */
+  .story-grid:after{display:none}
   .story-sticky{--burger-h:min(58vh,470px)}
   .story-burger,.story-finale{left:50%;top:56%}
   .story-ground{left:50%;bottom:16%}
