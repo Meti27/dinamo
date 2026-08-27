@@ -1,5 +1,6 @@
 import {
-  ASSEMBLED_ANCHOR, DESKTOP_COUNT, EXPLODE_FRAMES, LAYER_GEOMETRY, MOBILE_COUNT, MOBILE_MAP,
+  ASPECT, ASSEMBLED_ANCHOR, DESKTOP_COUNT, EXPLODE_FRAMES, LAYER_GEOMETRY, MOBILE_COUNT,
+  MOBILE_MAP,
 } from "./burgerFrames";
 import {
   FINALE_ANCHOR, FINALE_BACKDROP, FINALE_DESKTOP_COUNT, FINALE_MOBILE_COUNT,
@@ -7,28 +8,44 @@ import {
 import type { SequenceSource } from "./FrameSequence";
 
 /**
- * The story is told in fixed stops rather than scrubbed continuously.
+ * The story, in "stops" — 0 to LAST_STOP, mapped linearly from scroll position.
  *
- * One scroll gesture moves between neighbouring stops; the page snaps to them,
- * and the animation eases across on its own clock. Scrubbing straight from
- * scroll position tied every frame to however jerkily the wheel was turned,
- * which is what made it feel laggy — the scroll only chooses a destination now.
+ * The beats are not evenly spaced and they are not continuous motion. Each one
+ * moves, then *holds*: the burger arrives at a pose and sits there for a stretch
+ * of scrolling before the next beat starts. Without those holds the sequence is
+ * one unbroken slide from first frame to last, and at reading speed the eye
+ * never gets a still picture to land on — which is what "it goes too fast, I
+ * can't see what's happening" actually describes. The holds are the animation.
  *
- *   0  burger whole, headline on screen
- *   1  apart, ingredient labels readable
- *   2  back together
- *   3  boxed
- *   4  the menu wipe
+ *   0     - 1.0   the burger comes apart
+ *   1.0   - 1.35  HOLD, apart, all six ingredient labels readable
+ *   1.35  - 2.2   it goes back together
+ *   2.2   - 2.5   HOLD, whole again
+ *   2.5   - 3.4   it settles into the box
+ *   3.4   - 4     the menu wipe
+ *
+ * `.scroll-story` is 900svh over a 100svh stage, so a stop is two viewports of
+ * scrolling. Change the two together: the schedule is in stops, the room it gets
+ * is in CSS.
  */
 export const STOPS = ["intro", "layers", "whole", "boxed", "menu"] as const;
 export const LAST_STOP = STOPS.length - 1;
+
+/** the beat boundaries above, in one place so they can be re-timed together */
+const EXPLODE_END = 1.0;
+const APART_HOLD_END = 1.35;
+const REASSEMBLE_END = 2.2;
+const WHOLE_HOLD_END = 2.5;
+const BOX_END = 3.4;
 
 export const BURGER_SEQUENCE: SequenceSource = {
   dir: "burger-seq",
   desktopCount: DESKTOP_COUNT,
   mobileCount: MOBILE_COUNT,
   mobileMap: MOBILE_MAP,
-  aspect: 0.61158,
+  // from the generated manifest, not a literal: the crop is the union of every
+  // keyed frame, so it changes whenever the sequence is rebuilt
+  aspect: ASPECT,
   priorityUntil: EXPLODE_FRAMES,
 };
 
@@ -50,37 +67,50 @@ const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 /** how far `v` has travelled from `from` to `to`, clamped */
 const span = (v: number, from: number, to: number) => clamp01((v - from) / (to - from));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+/** ease-in-out, so a beat decelerates into the hold that follows it */
+const ease = (t: number) => t * t * (3 - 2 * t);
+/** `span`, eased */
+const beat = (v: number, from: number, to: number) => ease(span(v, from, to));
 
 /** scroll fraction over the whole section -> position between stops, 0..LAST_STOP */
 export function stopForProgress(p: number): number {
   return clamp01(p) * LAST_STOP;
 }
 
-/** stop 0 -> 1: the burger comes apart */
+/** apart, hold, back together — see the schedule above */
 export function frameForStop(stop: number): number {
   if (stop <= 0) return 0;
-  if (stop < 1) return lerp(0, LAST_EXPLODE, span(stop, 0, 1));
-  if (stop < 2) return lerp(EXPLODE_FRAMES, LAST_FRAME, span(stop, 1, 2));
+  if (stop < EXPLODE_END) return lerp(0, LAST_EXPLODE, beat(stop, 0, EXPLODE_END));
+  if (stop < APART_HOLD_END) return LAST_EXPLODE;
+  if (stop < REASSEMBLE_END) {
+    return lerp(EXPLODE_FRAMES, LAST_FRAME, beat(stop, APART_HOLD_END, REASSEMBLE_END));
+  }
   return LAST_FRAME;
 }
 
-/** stop 2 -> 3: it settles into the box */
+/** it settles into the box */
 export function finaleFrameForStop(stop: number): number {
-  return lerp(0, FINALE_DESKTOP_COUNT - 1, span(stop, 2, 3));
+  return lerp(0, FINALE_DESKTOP_COUNT - 1, beat(stop, WHOLE_HOLD_END, BOX_END));
 }
 
-/** 1 once the closing beat owns the stage */
+/**
+ * How far the closing beat has taken the stage from the burger sequence, 0..1.
+ *
+ * A short cross-fade rather than a hard swap: the two sequences are lined up
+ * geometrically but they are separate renders, so cutting between them shows the
+ * seam. Over a tenth of a stop it reads as one continuous object.
+ */
 export function finaleTakeover(stop: number): number {
-  return stop >= 2 ? 1 : 0;
+  return span(stop, WHOLE_HOLD_END, WHOLE_HOLD_END + 0.1);
 }
 
 /**
  * How far the backdrop has settled from the page's own gradient to the flat
- * studio colour the closing frames were shot on. Finishing before stop 2 is
- * what hides the seam around those opaque frames.
+ * studio colour the closing frames were shot on. Finishing before the takeover
+ * is what hides the seam around those opaque frames.
  */
 export function studioFade(stop: number): number {
-  return span(stop, 1.55, 1.95);
+  return span(stop, 1.95, WHOLE_HOLD_END - 0.08);
 }
 
 /**
@@ -88,8 +118,26 @@ export function studioFade(stop: number): number {
  * settles into its own centred framing — the box is far wider than the burger.
  */
 export function finaleSettle(stop: number): number {
-  const t = span(stop, 2, 2.7);
-  return t * t * (3 - 2 * t); // smoothstep
+  return beat(stop, WHOLE_HOLD_END, WHOLE_HOLD_END + 0.6);
+}
+
+/**
+ * How large the burger is drawn, as the story opens it.
+ *
+ * The frames are cropped to the union of every pose, so the fully exploded
+ * stack fills the frame and the assembled burger sits in the middle of it with
+ * a screen of empty space above and below. Drawn at a fixed size that makes a
+ * small hero. Instead the picture is scaled to fit the pose: large while the
+ * burger is whole, easing back to 1 as the layers spread and need the room. It
+ * reads as the camera pulling back to take the whole thing in, and it costs
+ * nothing — the frames are drawn at the same resolution either way, and the
+ * scale is a transform on the canvas rather than a change of layout.
+ */
+export function mediaScale(frame: number): number {
+  const open = frame <= LAST_EXPLODE
+    ? frame / LAST_EXPLODE
+    : 1 - (frame - EXPLODE_FRAMES) / Math.max(1, LAST_FRAME - EXPLODE_FRAMES);
+  return 1 + (MEDIA_SCALE - 1) * (1 - clamp01(open));
 }
 
 /** the headline clears out as the burger starts to come apart */
@@ -97,26 +145,40 @@ export function introFade(stop: number): number {
   return 1 - span(stop, 0.05, 0.55);
 }
 
-/** "Sloj po sloj." — up while the layers are apart */
+/** "Sloj po sloj." — up while the layers are apart, and through the hold */
 export function layersTitle(stop: number): number {
-  return Math.min(span(stop, 0.35, 0.8), 1 - span(stop, 1.25, 1.6));
+  return Math.min(span(stop, 0.35, 0.8), 1 - span(stop, 1.45, 1.75));
 }
 
-/** "Sve na svom mjestu." — up once it is whole again */
+/** "Sve na svom mjestu." — up across the second hold, and gone before the box */
 export function wholeTitle(stop: number): number {
-  return Math.min(span(stop, 1.5, 1.85), 1 - span(stop, 2.15, 2.45));
+  return Math.min(span(stop, 1.98, 2.18), 1 - span(stop, 2.38, WHOLE_HOLD_END + 0.02));
 }
 
-/** how strongly the ingredient labels are showing */
+/**
+ * How strongly the ingredient labels are showing.
+ *
+ * They come in staggered while the burger opens, are fully up for the entire
+ * apart-hold, and only start leaving once it begins closing again. Previously
+ * they faded from stop 1.15 — before the burger had even finished opening — so
+ * there was never a moment where all six could be read.
+ */
 export function labelReveal(stop: number, index: number): number {
-  // staggered, but all six are fully up by the time the stop is reached
   const inAt = 0.38 + index * 0.045;
-  return Math.min(span(stop, inAt, inAt + 0.25), 1 - span(stop, 1.15, 1.45));
+  return Math.min(span(stop, inAt, inAt + 0.25), 1 - span(stop, 1.45, 1.75));
 }
 
 /** how far the red menu panel has risen */
 export function menuWipe(stop: number): number {
-  return span(stop, 3.15, 4);
+  return span(stop, BOX_END + 0.05, LAST_STOP);
+}
+
+/** which of the four captions is showing, by beat rather than by rounding */
+export function stepIndex(stop: number): number {
+  if (stop < 0.5) return 0;                    // scroll to open
+  if (stop < 1.45) return 1;                   // our ingredients
+  if (stop < WHOLE_HOLD_END) return 2;         // assembling
+  return 3;                                    // the menu is below
 }
 
 /**
@@ -128,8 +190,19 @@ export function menuWipe(stop: number): number {
 const burgerH = ASSEMBLED_ANCHOR.bottom - ASSEMBLED_ANCHOR.top;
 const finaleH = FINALE_ANCHOR.bottom - FINALE_ANCHOR.top;
 
-/** closing element height, as a multiple of the burger element's height */
-export const FINALE_SCALE = burgerH / finaleH;
+/** how much of the burger element's height the assembled burger should fill */
+const ASSEMBLED_FILL = 0.66;
+
+/** what the picture is scaled by when the burger is whole — see mediaScale */
+export const MEDIA_SCALE = ASSEMBLED_FILL / burgerH;
+
+/**
+ * closing element height, as a multiple of the burger element's height.
+ *
+ * Times MEDIA_SCALE, because the beat it takes over from is drawn scaled: the
+ * two have to agree on the burger's size on screen, not in the frame.
+ */
+export const FINALE_SCALE = (burgerH / finaleH) * MEDIA_SCALE;
 
 /**
  * Downward nudge for the closing element, as a multiple of the burger element's
@@ -137,7 +210,7 @@ export const FINALE_SCALE = burgerH / finaleH;
  * different height inside each frame, so one has to shift to match the other.
  */
 export const FINALE_OFFSET =
-  ((ASSEMBLED_ANCHOR.top + ASSEMBLED_ANCHOR.bottom) / 2 - 0.5)
+  ((ASSEMBLED_ANCHOR.top + ASSEMBLED_ANCHOR.bottom) / 2 - 0.5) * MEDIA_SCALE
   + (0.5 - (FINALE_ANCHOR.top + FINALE_ANCHOR.bottom) / 2) * FINALE_SCALE;
 
 /** where a label should sit, as fractions of the burger's box */
@@ -156,7 +229,17 @@ export function layerAnchor(frame: number, layer: number): LayerAnchor {
   return { top: lerp(a[0], b[0], t), left: lerp(a[1], b[1], t), right: lerp(a[2], b[2], t) };
 }
 
-/** which stop the phase counter should read, 1-based */
+/**
+ * Which phase the counter should read, 1-based.
+ *
+ * By beat boundary rather than `Math.round(stop)`: the beats are no longer
+ * evenly spaced, so rounding would tick the counter over in the middle of a
+ * hold instead of at the moment the picture changes.
+ */
 export function stopLabel(stop: number): number {
-  return Math.min(LAST_STOP, Math.round(stop)) + 1;
+  if (stop < 0.5) return 1;
+  if (stop < 1.45) return 2;
+  if (stop < WHOLE_HOLD_END) return 3;
+  if (stop < BOX_END + 0.05) return 4;
+  return 5;
 }

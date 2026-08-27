@@ -70,6 +70,32 @@ function useMediaQuery(query: string): boolean {
   );
 }
 
+/**
+ * The order frames are fetched in: a few coarse sweeps of the *whole* sequence
+ * before any of them is filled in densely.
+ *
+ * Fetching 0,1,2,…,n in order means the end of the story has nothing to draw
+ * until the beginning is completely finished — scroll down early and the burger
+ * sits frozen on whichever frame it last managed to load, which is exactly what
+ * "it skips" looks like. Sweeping at stride 8, then 4, then 2, then 1 makes the
+ * entire story scrubbable after the first pass and only refines from there; the
+ * cross-fade in `paint` already makes a coarse pass read as continuous motion.
+ * Within each sweep the priority range goes first.
+ */
+function loadOrder(count: number, priority: number): number[] {
+  const seen = new Uint8Array(count);
+  const order: number[] = [];
+  const push = (i: number) => {
+    if (i < count && !seen[i]) { seen[i] = 1; order.push(i); }
+  };
+  seen[0] = 1; // already fetched on its own, to probe AVIF support
+  for (let stride = 8; stride >= 1; stride >>= 1) {
+    for (let i = 0; i < priority; i += stride) push(i);
+    for (let i = 0; i < count; i += stride) push(i);
+  }
+  return order;
+}
+
 async function fetchFrame(url: string): Promise<CanvasImageSource> {
   if (typeof createImageBitmap === "function") {
     const res = await fetch(url);
@@ -93,6 +119,7 @@ const FrameSequence = forwardRef<FrameSequenceHandle, Props>(function FrameSeque
   { source, className, style, label, still }, ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const imagesRef = useRef<(CanvasImageSource | undefined)[] | null>(null);
   /** maps a desktop-space frame position onto this variant's own index space */
   const scaleRef = useRef<(f: number) => number>((f) => f);
@@ -130,12 +157,29 @@ const FrameSequence = forwardRef<FrameSequenceHandle, Props>(function FrameSeque
     const hi = Math.min(count - 1, lo + 1);
     const t = pos - lo;
 
-    const a = images[lo];
-    if (!a) return;
-    const b = images[hi];
-
+    let a = images[lo];
+    let b: CanvasImageSource | undefined = images[hi];
     // quantised so an unchanged blend does not repaint
-    const signature = lo * 1000 + Math.round(t * 60);
+    let signature = lo * 1000 + Math.round(t * 60);
+
+    if (!a) {
+      // Still loading and this frame has not arrived. Draw the nearest one that
+      // has, rather than holding whatever happened to be painted last: with the
+      // sequence filling in coarse-to-fine the nearest is usually a frame or two
+      // away, and showing it keeps the burger moving with the scroll instead of
+      // freezing until the gap is filled.
+      let near = -1;
+      for (let d = 1; d < count; d++) {
+        if (images[lo - d]) { near = lo - d; break; }
+        if (images[lo + d]) { near = lo + d; break; }
+      }
+      if (near < 0) return;
+      a = images[near];
+      b = undefined;
+      signature = -2 - near; // distinct from any real blend, and from the -1 reset
+    }
+    if (!a) return;
+
     if (signature === drawnRef.current) return;
 
     const { w, h } = sizeOf(a, canvas.width, canvas.height);
@@ -147,7 +191,9 @@ const FrameSequence = forwardRef<FrameSequenceHandle, Props>(function FrameSeque
       canvas.height = h;
     }
 
-    const ctx = canvas.getContext("2d");
+    // fetched once and kept: getContext is cheap but not free, and this runs on
+    // every display frame for the whole length of the story
+    const ctx = ctxRef.current ?? (ctxRef.current = canvas.getContext("2d"));
     if (!ctx) return;
     ctx.clearRect(0, 0, w, h);
 
@@ -215,15 +261,25 @@ const FrameSequence = forwardRef<FrameSequenceHandle, Props>(function FrameSeque
 
     // A frame that fails to load is left undefined; paint() holds the previous
     // one, which beats tearing down an otherwise working canvas.
-    const loadRange = async (from: number, to: number) => {
-      for (let i = from; i < to; i++) {
-        if (cancelled) return;
+    const order = loadOrder(count, priority);
+    let cursor = 0;
+
+    const worker = async () => {
+      while (!cancelled) {
+        const i = order[cursor++];
+        if (i === undefined) return;
         try {
           images[i] = await fetchFrame(`/${source.dir}/${dir}/f${String(i).padStart(3, "0")}.avif`);
+        } catch {
+          continue; // keep going
+        }
+        // Only repaint if this is one of the two frames currently on screen.
+        // With several fetches in flight the alternative is a repaint per
+        // arrival, nearly all of them for frames nowhere near the scroll.
+        const at = Math.floor(scaleRef.current(wantRef.current));
+        if (i >= at - 1 && i <= at + 2) {
           drawnRef.current = -1;
           paint();
-        } catch {
-          /* keep going */
         }
       }
     };
@@ -243,9 +299,13 @@ const FrameSequence = forwardRef<FrameSequenceHandle, Props>(function FrameSeque
       if (cancelled) return;
       setReady(true);
       paint();
-      await loadRange(1, priority);
-      if (cancelled) return;
-      await loadRange(priority, count);
+      // Several at a time rather than one after another. Serially, 56 frames is
+      // 56 round trips end to end, and the tail of the story is unusable for
+      // seconds; the sequence is over HTTP/2 to the same origin, so the requests
+      // share one connection. Fewer in flight on a phone, where the decodes
+      // compete for far less CPU.
+      const lanes = mobile ? 3 : 6;
+      await Promise.all(Array.from({ length: lanes }, worker));
     })();
 
     return () => {

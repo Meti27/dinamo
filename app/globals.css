@@ -44,10 +44,12 @@ button{font:inherit}
    Height sets how much scrolling the whole burger sequence takes. The frame
    sequence itself carries no dead time, so this is the only timing knob;
    the beat boundaries live in app/burgerStory.ts. */
-/* One viewport per beat of the story. More height means the animation advances
-   more slowly per pixel scrolled, which is itself part of what keeps it smooth;
-   the speed limit in ScrollStory.tsx handles the rest. */
-.scroll-story{height:500vh;height:500svh;background:#03162f;color:#fff;position:relative}
+/* Two viewports per beat. At one viewport the whole five-beat story fitted in a
+   single flick and the eye never got to land on anything — the beats were there,
+   but they went past faster than they could be read. Doubling the room is the
+   fix; the holds in app/burgerStory.ts are the other half of it. There is no
+   longer a speed limit in ScrollStory.tsx compensating for a short section. */
+.scroll-story{height:900vh;height:900svh;background:#03162f;color:#fff;position:relative}
 .story-sticky{height:100vh;height:100svh;position:sticky;top:0;overflow:hidden;background:radial-gradient(circle at 54% 50%,#0a58a5 0,#073a78 31%,#041d42 67%,#031329 100%)}
 .story-sticky:after{content:"";position:absolute;z-index:6;inset:0;pointer-events:none;background:linear-gradient(90deg,#021229aa 0,transparent 28%,transparent 72%,#02122988 100%),linear-gradient(0deg,#020b18a8,transparent 25%,transparent 75%,#020b1880)}
 .story-grid{position:absolute;z-index:2;inset:0;will-change:opacity;background-image:linear-gradient(#ffffff07 1px,transparent 1px),linear-gradient(90deg,#ffffff07 1px,transparent 1px);background-size:70px 70px;-webkit-mask-image:radial-gradient(circle,black,transparent 72%);mask-image:radial-gradient(circle,black,transparent 72%)}
@@ -57,17 +59,26 @@ button{font:inherit}
    stay open enough for it to clear the line above — .92 is the floor here. */
 .story-intro h1{font-size:clamp(64px,8.4vw,146px);line-height:.94;letter-spacing:-.05em;margin:20px 0;text-transform:uppercase;font-weight:900;text-shadow:0 12px 45px #0006}
 .story-intro>p:last-child{font-size:18px;color:#b9d1ee}
-.story-halo{position:absolute;z-index:3;will-change:opacity;left:54%;top:50%;width:44vw;max-width:620px;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,#1675d880 0,#0e55a930 40%,transparent 70%);filter:blur(14px);transform:translate(-50%,-50%)}
+/* No blur filter: a 44vw blurred layer costs its own render surface, and the
+   softness it bought is available for free by spreading the gradient stops. */
+.story-halo{position:absolute;z-index:3;will-change:opacity;left:54%;top:50%;width:46vw;max-width:640px;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,#1675d87a 0,#1268c455 22%,#0e55a92e 45%,#0a4a9418 60%,transparent 76%);transform:translate(-50%,-50%)}
 
 /* the burger box is the burger's own bounding box, so label rows line up with
    the layer centres reported by the sequence manifest */
-.story-sticky{--burger-h:min(76vh,650px)}
-.story-burger{position:absolute;z-index:6;left:54%;top:50%;height:var(--burger-h);transform:translate(-50%,-50%)}
+/* Height of the whole frame, which is the fully exploded stack — the assembled
+   burger is scaled up inside it by ScrollStory (see mediaScale). The frame is
+   much taller than wide now, so these are sized to keep the burger's *width*
+   about where it was rather than its height. */
+.story-sticky{--burger-h:min(86vh,860px)}
+.story-burger{position:absolute;z-index:6;left:54%;top:50%;height:var(--burger-h);transform:translate(-50%,-50%);contain:layout style}
 /* the closing beat sits on the same anchor point; its size and nudge come from
    the two sequences' measured anchors so its first frame lands exactly on the
    burger the previous beat ended on */
-/* swapped outright, not cross-faded: the two beats are aligned to share
-   the same burger at the handoff, so blending them only doubles it */
+/* Sized once per resize by ScrollStory and then only ever scaled and
+   translated — animating its `height` and `left` was a layout on every frame of
+   the beat. The short cross-fade with the burger is in burgerStory's
+   finaleTakeover: the two beats are aligned to share the same burger at the
+   handoff, but they are separate renders, so cutting shows the seam. */
 .story-finale{position:absolute;z-index:6;left:54%;top:50%;aspect-ratio:1}
 /* these frames are opaque and carry their own shadow — a drop-shadow here would
    trace the canvas rectangle instead of the box inside it */
@@ -78,18 +89,26 @@ button{font:inherit}
 /* No drop-shadow here: the canvas repaints every frame, so a filter would have
    the browser re-blur its alpha every frame. The frames carry the source's own
    contact shadows already; .story-ground supplies the grounding under them. */
+/* Wraps only the canvas. ScrollStory scales this so the burger is drawn large
+   while it is whole and eases back to 1 as the layers need the room; the labels
+   sit outside it so their type never scales. */
+.burger-scale{position:absolute;inset:0;will-change:transform}
 .burger-media{display:block;width:100%;height:100%;opacity:0;transition:opacity .45s ease;user-select:none;pointer-events:none}
 .burger-media.ready,img.burger-media{opacity:1}
 
-.ingredient-label{position:absolute;z-index:9;width:235px;text-shadow:0 2px 12px #001936}
+/* Placed entirely by the transform ScrollStory writes, from the burger box it
+   measured on resize. The percentage `top` and the --layer-left/--layer-right
+   custom properties this used to ride on all fed layout-invalidating
+   properties, six labels deep, on every animation frame. */
+.ingredient-label{position:absolute;z-index:9;left:0;top:0;width:235px;text-shadow:0 2px 12px #001936;will-change:transform,opacity}
 .ingredient-label:before{content:"";position:absolute;top:12px;width:46px;height:1px;background:var(--gold);box-shadow:0 0 10px var(--gold)}
 .ingredient-label span{position:absolute;top:-2px;color:var(--gold);font-size:10px;font-weight:900;letter-spacing:.12em}
 .ingredient-label strong{display:block;font-size:17px;line-height:1.1}
 .ingredient-label p{font-size:11px;line-height:1.5;color:#b9d1ee;margin:7px 0 0}
-.label-1,.label-3,.label-5{right:calc(100% - var(--layer-left,0%) + 12px);text-align:right;padding:0 58px 0 0}
+.label-1,.label-3,.label-5{text-align:right;padding:0 58px 0 0}
 .label-1:before,.label-3:before,.label-5:before{right:0}
 .label-1 span,.label-3 span,.label-5 span{right:0}
-.label-2,.label-4,.label-6{left:calc(var(--layer-right,100%) + 12px);padding:0 0 0 58px}
+.label-2,.label-4,.label-6{padding:0 0 0 58px}
 .label-2:before,.label-4:before,.label-6:before{left:0}
 .label-2 span,.label-4 span,.label-6 span{left:0}
 
@@ -101,7 +120,7 @@ button{font:inherit}
 .story-wipe{position:absolute;z-index:20;inset:0;background:var(--red);display:grid;place-items:center;will-change:transform}
 .story-wipe span{font-size:clamp(90px,22vw,320px);font-weight:900;letter-spacing:-.05em;color:#fff;line-height:.8;will-change:transform,opacity;text-shadow:0 20px 50px #6a000044}
 .story-progress{position:absolute;z-index:21;right:28px;top:18%;height:64%;width:2px;background:#ffffff20}
-.story-progress span{display:block;width:100%;background:var(--red);box-shadow:0 0 12px var(--red)}
+.story-progress span{display:block;width:100%;height:100%;transform:scaleY(0);transform-origin:top;will-change:transform;background:var(--red);box-shadow:0 0 12px var(--red)}
 .story-phase{position:absolute;z-index:21;right:52px;top:17%;display:flex;align-items:baseline;gap:4px;font-variant-numeric:tabular-nums}
 .story-phase strong{font-size:24px}
 .story-phase span{font-size:10px;color:#ffffff70}
@@ -178,7 +197,7 @@ footer{background:#071b36;color:#fff;display:flex;align-items:center;justify-con
   .story-halo{left:50%;top:56%;width:80vw}
   /* two 25vh spread shadows is a lot of paint for decoration */
   .story-grid:after{display:none}
-  .story-sticky{--burger-h:min(58vh,470px)}
+  .story-sticky{--burger-h:min(74vh,640px)}
   .story-burger,.story-finale{left:50%;top:56%}
   .story-ground{left:50%;bottom:16%}
   .story-title{left:22px;bottom:4vh}
@@ -201,7 +220,7 @@ footer{background:#071b36;color:#fff;display:flex;align-items:center;justify-con
   .lang-switch{padding:2px}
   .lang-switch button{min-width:29px;height:29px;padding:0 6px;font-size:9px}
   /* small enough that the edge-pinned labels clear the food */
-  .story-sticky{--burger-h:min(42vh,330px)}
+  .story-sticky{--burger-h:min(64vh,480px)}
   .story-burger,.story-finale{top:56%}
   .story-ground{bottom:22%;width:44vw;height:38px}
   .story-halo{top:56%}
@@ -214,10 +233,11 @@ footer{background:#071b36;color:#fff;display:flex;align-items:center;justify-con
   .ingredient-label:before{width:18px}
   .ingredient-label strong{font-size:11px}
   .ingredient-label span{font-size:7px}
-  .label-1,.label-3,.label-5{left:calc(-50vw + 50% + 12px);right:auto;text-align:left;padding:0 0 0 24px}
+  /* pinned to the frame edges by ScrollStory's measure(), not by `left`/`right` */
+  .label-1,.label-3,.label-5{text-align:left;padding:0 0 0 24px}
   .label-1:before,.label-3:before,.label-5:before{left:0;right:auto}
   .label-1 span,.label-3 span,.label-5 span{left:0;right:auto}
-  .label-2,.label-4,.label-6{right:calc(-50vw + 50% + 12px);left:auto;text-align:right;padding:0 24px 0 0}
+  .label-2,.label-4,.label-6{text-align:right;padding:0 24px 0 0}
   .label-2:before,.label-4:before,.label-6:before{right:0;left:auto}
   .label-2 span,.label-4 span,.label-6 span{right:0;left:auto}
   .story-progress{right:10px}

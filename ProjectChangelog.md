@@ -1,3 +1,132 @@
+### [2026-08-27] New generated footage, and an animation loop that does no layout
+
+**Changes:** Two complaints — laggy on a phone, and on desktop it "skips phases,
+goes too fast, the eye can't see what's happening". Neither was caused by the
+footage, so both were fixed in code; the footage was regenerated separately
+because it was asked for, and it turned out better and smaller.
+
+**The phone lag was a forced reflow on every animation frame.** `apply()` wrote
+styles to ten elements and *then* read `sticky.offsetHeight` and
+`burgerRef.offsetHeight`, which makes the browser lay the page out again,
+synchronously, before it can answer. It then wrote `top` on six labels, `left`
+and `height` on the closing beat, and `height` on the progress bar — all
+layout-invalidating. So every frame was a full style recalc plus layout of the
+sticky subtree.
+
+- All geometry now lives in a `Metrics` object filled by `measure()`, which runs
+  on resize and never inside the loop. Verified: zero layout reads and zero
+  non-compositor writes inside `apply` — it is `opacity` and `transform` only.
+- Labels are placed by one `translate3d` each, computed in px from the burger box
+  measured on resize, instead of a percentage `top` plus two custom properties
+  feeding `calc()` in `left`/`right`. The `<=560px` edge-pinned layout moved into
+  the same computation rather than a second set of CSS rules.
+- The closing beat is sized once per resize and only ever scaled and translated.
+  The progress bar is `scaleY` instead of `height`.
+- The scroll position is read in the rAF tick, at the top of the frame before any
+  write, rather than in the scroll handler — which could fire several times per
+  displayed frame, each one a `getBoundingClientRect`.
+
+**"Too fast" was the scroll budget, not the speed.** `.scroll-story` was 500svh
+over a 100svh stage: 400svh for four beats, exactly one viewport per beat, and
+`frameForStop` was a straight lerp with no dwell, so nothing was ever still.
+
+- 900svh, so a beat is two viewports.
+- The schedule now **holds**: apart at 1.0-1.35 with all six labels up, whole
+  again at 2.2-2.5. The holds are the animation — without them there is no
+  moment for the eye to land on. `labelReveal` used to start fading at stop 1.15,
+  before the burger had finished opening, so there was never an instant where all
+  six could be read; they are now fully up for a whole viewport of scrolling.
+- **`MAX_STOPS_PER_SEC` is gone.** That speed cap kept the burger playing after
+  you had stopped scrolling, which is most of what "laggy" described — the
+  picture was no longer answering to the hand. With enough scroll length there is
+  nothing to fight. The frame-rate-independent exponential follow stays, at
+  `FOLLOW_RATE = 11` (~90ms), which is the light smoothing that was asked for.
+
+**Frames load in parallel, coarse-to-fine.** Loading was 56 strictly serial
+`await`s, so the end of the story had nothing to draw until the beginning had
+finished — scroll down early and the burger sat frozen, which is itself what
+"skipping" looks like. Now a bounded pool (6 lanes, 3 on mobile) works through
+stride 8, then 4, then 2, then 1: after 14 of 55 fetches the whole sequence is
+covered with no gap wider than 4 frames, and the cross-fade already makes a
+coarse pass read as continuous motion. A frame that has not arrived draws the
+nearest one that has instead of holding the last paint.
+
+**New footage (Higgsfield, ~330 of 3000 credits).** `nano_banana_pro` hero still
+on a flat navy backdrop, then `seedance_2_5` `omni_reference` with the still as
+both start and end image — which is what makes the clip return exactly to its
+first frame — and a `video_extension` for the boxing beat. Two pipeline fixes
+were needed and both were real bugs, not accommodations:
+
+- `bands()` counted a row as filled on three opaque pixels, so one narrow drip of
+  melted cheese fused the cheddar into the patty. It now needs `BAND_MIN_W` (5%)
+  of the width, which separates them and is stable from 4% to 12%.
+- `find_motion` used the same metric to find where the explosion *starts*, and it
+  is blind there: the burger's height grew 47% (707 -> 1037 rows) while the gap
+  metric sat at 2, because the layers were spreading but still touching. It
+  picked source frame 24, a quarter into the explosion, so the sequence never
+  showed the closed burger. Start is now read from the span and end from the gap
+  — each metric where it actually works.
+- The clip separates into eight physical pieces, not six, because the lettuce,
+  tomato and onion are three objects. `LAYER_GROUPS = (1, 3, 1, 1, 1, 1)` states
+  the mapping onto the six labelled ingredients, which is exactly right: those
+  three bands *are* "Svježe povrće — hrskava salata, paradajz i crveni luk". The
+  build fails loudly if the footage does not give `sum(LAYER_GROUPS)` pieces.
+
+**The camera pulls back as the burger opens.** The frames are cropped to the
+union of every pose, and this explosion spreads much further than the old one, so
+the assembled burger only fills 37% of the frame — drawn at a fixed size it made
+a small hero. `mediaScale()` scales the canvas from 1.77 when whole to 1.0 when
+fully apart. It is a transform on a wrapper around the canvas only, so label type
+never scales; their anchors are carried through the same scale. `FINALE_SCALE`
+and `FINALE_OFFSET` are multiplied by it, since the two beats have to agree on
+the burger's size on screen rather than in the frame — verified, both put it at
+430px.
+
+`public/finale-still.*` — the closing beat's reduced-motion and no-AVIF fallback
+— was a hand-made file the build script never wrote, so it was still showing the
+*previous* clip's box on a page whose every other frame had been replaced. The
+finale script now generates it alongside the frames it has to match.
+
+Also: the burger/box handoff is a short cross-fade (`finaleTakeover` over a tenth
+of a stop) rather than a hard swap; `burgerStory` reads `ASPECT` from the
+generated manifest instead of a hardcoded literal, which would have been wrong
+after any rebuild; the halo's `filter: blur(14px)` was replaced by wider gradient
+stops, since a blurred 44vw layer costs its own render surface.
+
+**Payload went down**, despite the same frame counts: the taller, narrower crop
+is mostly transparent and compresses far better. Burger 2483 -> 1547 KB desktop
+and 730 -> 513 KB mobile; finale 808 -> 603 KB and 214 -> 168 KB; `public/`
+4.97 -> 4.0 MB.
+
+**Files:** `app/ScrollStory.tsx`, `app/FrameSequence.tsx`, `app/burgerStory.ts`,
+`app/globals.css`, `scripts/build-burger-sequence.py`,
+`scripts/build-finale-sequence.py`, regenerated
+`app/burgerFrames.ts`, `app/finaleFrames.ts`, `public/burger-seq/`,
+`public/finale-seq/`, `public/{burger,finale}-still.{avif,webp}`, new
+`assets/source/burger-master.mp4` and `burger-boxing.mp4`
+
+**Decisions:**
+- Frame counts left at 56/35 rather than raised as originally planned. With the
+  cross-fade, frame count sets the fidelity of the motion path, not smoothness,
+  and each extra desktop frame costs ~1.5 MB of resident `ImageBitmap`. The
+  reported problems were pacing and jank; neither is a frame-count problem. It is
+  a one-line change in the build script if the motion ever wants more detail.
+
+**TODOs:**
+- The beats after the intro were verified by rendering them from the real frames
+  with the page's own choreography functions, not in the browser: this
+  environment could not deliver scroll or keyboard events to the page (wheel
+  ticks moved ~9px and `Page_Down` did nothing). Worth one manual pass through
+  the story, particularly the box handoff and the menu wipe.
+- The dev server serves 0-byte bodies for files under `public/` after the build
+  script deletes and recreates those directories. Restart `npm run dev` after any
+  sequence rebuild.
+- Pre-existing: `npm test` fails on the host-injected `codex-preview` assertion;
+  one lint error at `app/page.tsx:91`.
+- Pre-existing: `.story-intro` has `transform: translateY(-50%)` in CSS that the
+  loop overwrites from the first frame, so the headline is not actually centred
+  on its `top: 50%`. Left as-is — it is how the page has always rendered.
+
 ### [2026-08-25] Cross-faded frames, no React in the animation loop
 
 **Changes:** Two complaints — skipping frames on desktop, lag on phone. Neither
