@@ -1,0 +1,286 @@
+/* ---------- type ----------
+   Archivo, self-hosted so there is no third-party request and no flash of a
+   fallback face. The latin-ext subset is what carries Č, Ć, Ž, Š and Đ. */
+@font-face{font-family:Archivo;font-style:normal;font-weight:400 900;font-display:swap;src:url(/fonts/archivo-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:Archivo;font-style:normal;font-weight:400 900;font-display:swap;src:url(/fonts/archivo-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+
+/* ---------- base ---------- */
+:root{
+  --blue:#082e68; --red:#d80d16; --cream:#f2ead8; --gold:#d7b767; --ink:#11120f;
+  --night:#03162f;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--cream);color:var(--ink);overflow-x:hidden;
+  font-family:Archivo,'Helvetica Neue',Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+img{max-width:100%;display:block}
+a{text-decoration:none;color:inherit}
+button{font:inherit;cursor:pointer}
+h1,h2,h3,p{margin:0}
+
+.kicker{font-size:10px;font-weight:900;letter-spacing:.22em;color:var(--red)}
+.kicker.gold{color:var(--gold)}
+
+/* ---------- nav ---------- */
+.nav{position:fixed;z-index:50;top:0;left:0;width:100%;height:88px;padding:0 4vw;
+  display:flex;align-items:center;justify-content:space-between;color:#fff;
+  transition:height .35s,background .35s,border-color .35s;
+  background:linear-gradient(#061d41cc,transparent);border-bottom:1px solid transparent}
+.nav.scrolled{height:70px;background:#061f49f2;backdrop-filter:blur(14px);border-bottom-color:#ffffff20}
+.brand{display:flex;align-items:center;gap:12px;font-weight:900;letter-spacing:.14em;font-size:15px}
+.brand img{width:44px;height:44px;display:block}
+.nav-links{display:flex;gap:26px;font-size:14px}
+.nav-links a{opacity:.85}
+.nav-links a:hover{opacity:1}
+.nav-actions{display:flex;align-items:center;gap:14px}
+.lang{display:flex;align-items:center;padding:3px;border:1px solid #ffffff38;
+  background:#031a3d80;border-radius:999px;backdrop-filter:blur(10px)}
+.lang button{min-width:36px;height:30px;padding:0 9px;border:0;border-radius:999px;
+  background:transparent;color:#ffffffb0;font-size:11px;font-weight:900;letter-spacing:.08em}
+.lang button.active{background:#fff;color:var(--blue)}
+.nav-call{padding:12px 22px;border-radius:999px;background:var(--red);color:#fff;
+  font-weight:900;font-size:12px;letter-spacing:.08em}
+
+/* ---------- the story ----------
+   Height is the only timing knob: it sets how much scrolling the whole sequence
+   takes. The beat boundaries live in BurgerStory.tsx. Four viewports over a one
+   viewport stage means three of scrolling, and the sequence opens, HOLDS so the
+   labels can actually be read, and closes across it. */
+.story{height:400vh;height:400svh;position:relative;background:var(--night);color:#fff}
+.story-stage{height:100vh;height:100svh;position:relative;overflow:hidden;
+  background:radial-gradient(circle at 54% 48%,#0a58a5 0,#073a78 31%,#041d42 67%,#031329 100%)}
+/* a soft frame so the burger never sits flush against the edges */
+.story-stage:after{content:"";position:absolute;z-index:6;inset:0;pointer-events:none;
+  background:linear-gradient(90deg,#021229aa 0,transparent 26%,transparent 74%,#02122988 100%),
+             linear-gradient(0deg,#020b18a8,transparent 24%,transparent 76%,#020b1880)}
+.story-grid{position:absolute;z-index:2;inset:0;will-change:opacity;
+  background-image:linear-gradient(#ffffff07 1px,transparent 1px),linear-gradient(90deg,#ffffff07 1px,transparent 1px);
+  background-size:70px 70px;
+  -webkit-mask-image:radial-gradient(circle,black,transparent 72%);
+  mask-image:radial-gradient(circle,black,transparent 72%)}
+/* no blur filter — a blurred half-viewport layer costs its own render surface,
+   and the softness is free from the gradient stops */
+.story-halo{position:absolute;z-index:3;left:54%;top:48%;width:46vw;max-width:660px;
+  aspect-ratio:1;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;
+  background:radial-gradient(circle,#1675d87a 0,#1268c455 22%,#0e55a92e 45%,#0a4a9418 60%,transparent 76%)}
+
+/* Offset right of the headline on desktop, so the two never fight for the
+   middle. FrameCanvas contains and centres the frame inside this box, so moving
+   the box is how the burger is composed on the stage. */
+/* Sits right of centre and inset from the stage edges, so that at full spread
+   the bun still clears the nav and there is room for a 230px label on either
+   side of it. FrameCanvas contains and centres the frame inside this box. */
+.story-burger{position:absolute;z-index:6;top:8%;bottom:8%;left:12%;right:0}
+.story-burger canvas{position:absolute;inset:0;width:100%;height:100%;display:block;
+  /* the drawn frame is contained and centred inside this box by FrameCanvas */
+  pointer-events:none;user-select:none}
+
+/* Centred with flex, not translateY(-50%): GSAP animates `y` on this element,
+   and a transform tween overwrites whatever transform the stylesheet used to
+   position it — which silently drops it half a screen. */
+.story-headline{position:absolute;z-index:7;left:5vw;top:0;bottom:0;
+  display:flex;flex-direction:column;justify-content:center;
+  max-width:min(33vw,480px);will-change:transform,opacity;opacity:0;visibility:hidden}
+.story-headline.is-shown{opacity:1;visibility:visible}
+.eyebrow{display:flex;align-items:center;gap:12px;font-size:10px;font-weight:900;
+  letter-spacing:.2em;color:#cfe0f5}
+.eyebrow span{width:34px;height:2px;background:var(--red);display:block}
+/* Archivo's caron on Č rises well past the cap height, so the line box has to
+   stay open enough for it to clear the line above — .94 is the floor here. */
+.story-headline h1{font-size:clamp(48px,6.4vw,116px);line-height:.94;letter-spacing:-.05em;
+  margin:20px 0;text-transform:uppercase;font-weight:900;text-shadow:0 12px 45px #0006}
+.story-headline .lede{font-size:17px;color:#b9d1ee}
+
+.story-title{position:absolute;z-index:7;left:5vw;bottom:9vh;will-change:transform,opacity;
+  opacity:0;visibility:hidden}
+.story-title p{font-size:10px;font-weight:900;letter-spacing:.22em;color:var(--gold)}
+.story-title h2{font-size:clamp(40px,5.4vw,84px);line-height:.98;letter-spacing:-.035em;
+  font-weight:800;margin:12px 0 0;text-shadow:0 10px 40px #0004}
+
+/* Labels are placed entirely by the transform BurgerStory writes, from the
+   canvas box it measured on resize. Nothing here contributes to their position,
+   so a frame never invalidates layout. */
+.label{position:absolute;left:0;top:0;z-index:9;width:230px;visibility:hidden;opacity:0;
+  will-change:transform,opacity;text-shadow:0 2px 12px #001936}
+.label:before{content:"";position:absolute;top:11px;width:44px;height:1px;
+  background:var(--gold);box-shadow:0 0 10px var(--gold)}
+.label span{position:absolute;top:-2px;color:var(--gold);font-size:10px;font-weight:900;letter-spacing:.12em}
+.label strong{display:block;font-size:17px;line-height:1.15}
+.label p{font-size:11px;line-height:1.5;color:#b9d1ee;margin:6px 0 0}
+.label-1,.label-3,.label-5{text-align:right;padding:0 56px 0 0}
+.label-1:before,.label-3:before,.label-5:before{right:0}
+.label-1 span,.label-3 span,.label-5 span{right:0}
+.label-2,.label-4{padding:0 0 0 56px}
+.label-2:before,.label-4:before{left:0}
+.label-2 span,.label-4 span{left:0}
+
+.story-rail{position:absolute;z-index:21;right:28px;top:20%;height:60%;width:2px;background:#ffffff20}
+.story-rail span{display:block;width:100%;height:100%;transform:scaleY(0);transform-origin:top;
+  will-change:transform;background:var(--red);box-shadow:0 0 12px var(--red)}
+.story-step{position:absolute;z-index:21;right:19px;bottom:5%;writing-mode:vertical-rl;
+  font-size:8px;font-weight:900;letter-spacing:.2em;color:#ffffff80}
+
+/* loading state — the sequence never starts half-loaded */
+.story-loading{position:absolute;z-index:30;left:50%;bottom:9vh;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:10px}
+.story-loading-bar{display:block;width:170px;height:2px;background:#ffffff26;overflow:hidden}
+.story-loading-bar span{display:block;width:100%;height:100%;background:var(--gold);
+  transform-origin:left;transition:transform .2s linear}
+.story-loading em{font-style:normal;font-size:9px;font-weight:900;letter-spacing:.2em;color:#ffffff9c}
+
+/* reduced motion: two stills, no pin, no scrub */
+.story-static{height:auto}
+.story-static .story-stage{height:auto;padding:150px 5vw 90px}
+.story-static .story-headline{position:static;transform:none;max-width:none;margin-bottom:50px;
+  opacity:1;visibility:visible}
+.story-stills{display:flex;gap:5vw;justify-content:center;align-items:flex-end;flex-wrap:wrap}
+.story-stills img{width:min(38vw,330px);height:auto}
+
+/* ---------- the transition out of the story ----------
+   The pin used to end and the cream menu simply began, which read as the
+   animation running out rather than finishing. The ticker now carries the
+   boundary: it sits on a band that fades from the story's night blue into the
+   menu's cream, so the colour has already changed by the time the grid starts. */
+.ticker{background:linear-gradient(var(--night) 0,var(--night) 34%,var(--cream) 34%,var(--cream) 100%);
+  padding-top:60px;overflow:hidden}
+.ticker>div{display:flex;gap:2.5rem;width:max-content;background:var(--red);color:#fff;
+  padding:16px 0;transform:rotate(-1.1deg) scale(1.04);
+  font-weight:900;font-size:clamp(18px,2.4vw,30px);letter-spacing:.04em;
+  animation:slide 26s linear infinite}
+.ticker span{padding-right:2.5rem;white-space:nowrap}
+@keyframes slide{to{transform:rotate(-1.1deg) scale(1.04) translateX(-50%)}}
+@media(prefers-reduced-motion:reduce){.ticker>div{animation:none}}
+
+/* ---------- menu ---------- */
+/* the nav is fixed, so an anchor jump has to stop short of it or the section
+   heading lands underneath */
+.menu,.location{scroll-margin-top:70px}
+.menu{background:var(--cream);padding:90px 5vw 100px}
+.menu-head{display:flex;justify-content:space-between;align-items:flex-end;gap:28px;
+  flex-wrap:wrap;margin-bottom:46px}
+.menu-head h2{font-size:clamp(44px,6vw,88px);line-height:1;letter-spacing:-.04em;
+  font-weight:900;margin-top:10px}
+.filters{display:flex;gap:8px;flex-wrap:wrap}
+.filters button{padding:11px 20px;border-radius:999px;border:1px solid #11120f22;
+  background:transparent;font-size:12px;font-weight:800;letter-spacing:.06em;
+  transition:background .2s,color .2s,border-color .2s}
+.filters button:hover{border-color:#11120f55}
+.filters button.active{background:var(--blue);border-color:var(--blue);color:#fff}
+.menu-grid{display:grid;gap:26px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+.card{background:#fff;border-radius:20px;overflow:hidden;
+  box-shadow:0 10px 30px #11120f0f;transition:transform .3s,box-shadow .3s}
+.card:hover{transform:translateY(-6px);box-shadow:0 18px 44px #11120f1f}
+.card-image{position:relative;aspect-ratio:1;background:#f6f2e7}
+.card-image img{width:100%;height:100%;object-fit:cover}
+.card-image span{position:absolute;left:12px;top:12px;padding:6px 12px;border-radius:999px;
+  background:#ffffffe8;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.card-info{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:18px 20px 20px}
+.card-info h3{font-size:19px;font-weight:800;letter-spacing:-.01em}
+.card-info p{font-size:12px;color:#11120f8c;margin-top:3px}
+.card-info strong{font-size:17px;font-weight:900;color:var(--red);white-space:nowrap}
+/* No scroll-driven reveal on the cards.
+   `animation-timeline: view()` with `animation-fill-mode: both` holds the
+   element at its `from` state — opacity 0 — until the browser decides it has
+   entered. Jump to the section instead of scrolling to it (which is what the
+   nav's own "Meni" link does) and the timeline never advances: every card in
+   the menu stays invisible. Core content does not get to depend on that. */
+
+/* ---------- location ---------- */
+/* The two halves are the same height and their content is centred in it, so
+   neither column ends in a slab of empty colour. */
+.location{display:grid;grid-template-columns:1.05fr .95fr;background:var(--blue);color:#fff;
+  align-items:stretch}
+.location-copy{padding:110px 5vw;display:flex;flex-direction:column;justify-content:center}
+.location-copy h2{font-size:clamp(44px,5.6vw,84px);line-height:.98;letter-spacing:-.04em;
+  font-weight:900;margin:14px 0 26px;overflow-wrap:anywhere}
+.address{font-size:17px;color:#c6d9f2;line-height:1.7}
+.hours{display:inline-flex;flex-direction:column;gap:4px;margin:30px 0 34px;
+  padding:16px 22px;border:1px solid #ffffff2e;border-radius:14px}
+.hours span{font-size:9px;font-weight:900;letter-spacing:.2em;color:var(--gold)}
+.hours strong{font-size:22px;font-weight:900}
+.location-actions{display:flex;gap:12px;flex-wrap:wrap}
+.button{padding:15px 28px;border-radius:999px;font-size:13px;font-weight:900;letter-spacing:.05em}
+.button.primary{background:var(--red);color:#fff}
+.button.ghost{border:1px solid #ffffff44;color:#fff}
+.logo-panel{position:relative;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:26px;padding:90px 5vw;background:var(--night);overflow:hidden}
+/* a centred square, so the glow behind the crest is a circle rather than the
+   stretched ellipse an inset-0 radial gradient makes on a wide panel */
+.logo-mark{position:relative;display:grid;place-items:center;
+  width:min(58vw,300px);aspect-ratio:1}
+.logo-glow{position:absolute;inset:-18%;border-radius:50%;
+  background:radial-gradient(circle,#1c6fc94d 0,#12539c26 42%,transparent 70%)}
+.logo-mark img{position:relative;width:min(42vw,220px);height:auto}
+.logo-panel p{font-size:10px;font-weight:900;letter-spacing:.24em;color:#9dbbe0;text-align:center}
+
+/* ---------- footer ---------- */
+/* the footer continues the logo panel's colour, so the page ends on one block
+   rather than a third band of a fourth blue */
+.footer{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;
+  padding:30px 5vw;background:var(--night);color:#fff;border-top:1px solid #ffffff14}
+.footer .brand img{width:36px;height:36px}
+.footer p{font-size:12px;color:#ffffff7a}
+.footer a[href="#top"]{font-size:11px;font-weight:900;letter-spacing:.16em;color:var(--gold)}
+
+/* ---------- responsive ---------- */
+/* Between these widths the burger is still centre-stage but there is no longer
+   room for a full-width label on both sides of it. */
+@media(max-width:1180px){
+  .label{width:168px}
+  .label p{display:none}
+  .story-burger{top:13%;bottom:11%}
+  .story-headline{max-width:min(30vw,420px)}
+}
+@media(max-width:900px){
+  .location{grid-template-columns:1fr}
+  .location-copy{padding:90px 6vw}
+}
+@media(max-width:760px){
+  .nav-links{display:none}
+  .story-headline{left:0;top:0;bottom:auto;width:100%;max-width:none;
+    justify-content:flex-start;padding:15vh 6vw 0;text-align:center}
+  .eyebrow{justify-content:center}
+  .story-headline h1{font-size:clamp(46px,12vw,86px);margin:16px 0}
+  .story-halo{left:50%;top:58%;width:82vw}
+  /* full width again, and pushed below the headline */
+  .story-burger{left:0;top:20%;bottom:2%}
+  .story-title{left:22px;bottom:5vh}
+  .label{width:170px}
+  .label p{display:none}
+  .menu{padding:70px 6vw 80px}
+  .menu-grid{grid-template-columns:repeat(2,1fr);gap:16px}
+}
+@media(max-width:640px){
+  .nav{height:70px;padding:0 18px}
+  .brand span{font-size:13px}
+  .brand img{width:38px;height:38px}
+  .nav-call{padding:11px 17px}
+  /* labels pin to the frame edges — there is no room beside the food at this
+     width, and a label that tracks a layer outwards ends up on top of it */
+  .label{width:124px;text-shadow:0 2px 10px #001936,0 0 22px #00193699}
+  .label:before{width:16px}
+  .label strong{font-size:11px;line-height:1.2}
+  .label span{font-size:7px}
+  .label-1,.label-3,.label-5{text-align:left;padding:0 0 0 22px}
+  .label-1:before,.label-3:before,.label-5:before{left:0;right:auto}
+  .label-1 span,.label-3 span,.label-5 span{left:0;right:auto}
+  .label-2,.label-4{text-align:right;padding:0 22px 0 0}
+  .label-2:before,.label-4:before{right:0;left:auto}
+  .label-2 span,.label-4 span{right:0;left:auto}
+  .story-step{display:none}
+  .story-rail{right:10px}
+  /* Two columns, not one. Fourteen full-width square cards is six thousand
+     pixels of menu on a phone; at this width a card is still ~170px, which is
+     plenty for a photo, a name and a price. */
+  .menu-grid{grid-template-columns:repeat(2,1fr);gap:12px}
+  .card{border-radius:16px}
+  .card-info{flex-direction:column;align-items:flex-start;gap:4px;padding:12px 13px 14px}
+  .card-info h3{font-size:14px;line-height:1.2}
+  .card-info p{font-size:11px}
+  .card-info strong{font-size:15px}
+  .card-image span{left:8px;top:8px;padding:5px 9px;font-size:8px}
+  .menu-head{margin-bottom:28px}
+  .filters button{padding:9px 15px;font-size:11px}
+  .footer{justify-content:center;text-align:center}
+}

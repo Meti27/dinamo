@@ -1,3 +1,162 @@
+### [2026-09-01] Fixes: scroll-back, the invisible menu, the elliptical logo
+
+**Changes:** Four real bugs, three of which I shipped without catching. Every one
+is now covered by a headless-Chrome check rather than a screenshot at one scroll
+position, which is how they got through.
+
+- **The headline never came back when you scrolled up.** It had a one-shot
+  entrance tween animating `opacity` and `y`, and a separate scroll-driven tween
+  animating the same two properties. Reversing the scrub restored the values GSAP
+  had recorded for the *entrance*, so the headline returned at opacity 0 and
+  stayed there. Now there is one timeline on the pinning trigger and every tween
+  is a `fromTo` declaring both ends, so there is nothing to record and it
+  reverses exactly; the entrance moved onto a child element so nothing else
+  touches what the scrub owns. Verified: opacity 1 -> 0 -> 1 -> 1 over two full
+  round trips, on desktop and mobile.
+
+- **The whole menu rendered blank after clicking "Meni" in the nav.** The cards
+  used a CSS scroll-driven reveal (`animation-timeline: view()` with
+  `animation-fill-mode: both`), which holds an element at its `from` state —
+  opacity 0 — until the browser decides it has entered the viewport. Jump to the
+  section instead of scrolling to it and the timeline never advances: all
+  fourteen cards stayed invisible. Removed. Core content does not get to depend
+  on that.
+
+- **The logo rendered as an ellipse.** `public/dinamo.jpg` is 840x630 with a
+  mottled blue backdrop, and the CSS put `border-radius: 50%` on it — a
+  non-square image under a 50% radius is an ellipse, not a circle. Added
+  `scripts/build-logo.py`, which finds the crest by its gold rim, fits a circle,
+  and writes a square `public/dinamo-logo.{avif,webp}` with transparency outside
+  it. Used in the nav, the location panel and the footer through one `Logo`
+  component.
+
+- **The location panel looked unfinished.** Its decorative `.rings` were
+  `radial-gradient(circle, …)` on an `inset: 0` element, which on a wide panel is
+  a stretched ellipse clipped by the edges. Replaced with a centred square glow
+  behind the crest, the two columns now share a height with their content
+  centred, and the footer continues the panel's colour with a hairline rule
+  instead of introducing a fourth blue.
+
+**Also:** the menu is two columns on phones rather than one — fourteen
+full-width square cards was about six thousand pixels of menu — with the card
+name and price stacked at that size. `.menu` and `.location` get
+`scroll-margin-top` so an anchor jump does not land the heading under the fixed
+nav.
+
+**Verified** (headless Chrome over CDP, at 1440x900, 390x844 and with
+`prefers-reduced-motion`): headline returns to full opacity after two round
+trips; 14/14 cards visible after a nav click; no console errors at any size; all
+14 menu images and the logo load; anchors land correctly; reduced motion still
+renders two stills with no pin. Scrub cost unchanged at 28 layouts across a
+91-step scrub.
+
+**Files:** `src/components/BurgerStory.tsx`, `src/components/Logo.tsx` (new),
+`src/components/Nav.tsx`, `src/components/Location.tsx`,
+`src/components/Footer.tsx`, `src/styles.css`, `scripts/build-logo.py` (new),
+`public/dinamo-logo.{avif,webp}` (new)
+
+**TODOs:**
+- `public/dinamo.jpg` is still the source for `build-logo.py` and is no longer
+  referenced by the page. Keep it, or replace it with a proper vector crest and
+  drop the extraction step.
+
+### [2026-09-01] Rebuilt from scratch: Vite + React + GSAP, new footage
+
+**Changes:** The old repo was ChatGPT Sites scaffolding — two build systems (dev
+was Vite + vinext + Cloudflare, build was `next build --webpack`), an unused
+Drizzle/D1 layer, a `worker/`, a 3,347-file `.sites-runtime/`, none of which the
+page touched. Deleted it and rebuilt in place on Vite + React + TypeScript with
+GSAP/ScrollTrigger. Git history keeps the old project; `73931e3` is the last
+commit of it.
+
+**New footage** (`assets/source/burger-frames.zip`, 30 PNGs, 1920x1080). What it
+actually is, measured before planning around it:
+
+- It runs **closed -> apart only**. There is no reassembly in the source, so the
+  scrub plays 1->30->1. That is where "the burger goes back assembled" comes
+  from, at no extra asset cost.
+- The PNG alpha is fully opaque — the navy backdrop is baked in. But it never
+  moves (2/255 mean drift across all 30), so it mattes out.
+- The burger uses 16% of the frame area, so cropping is worth ~30x in pixels.
+
+**The matte was proven before anything was built on it.** The burger never
+clears the middle of the frame, so a median across frames recovers the backdrop
+everywhere except where it is needed. A cubic surface fitted per channel to the
+pixels outside the subject box reproduces known background at **1.70/255** and
+the strip it has to extrapolate at **1.68/255** — extrapolating across the
+burger is as accurate as interpolating. On magenta there is no fringing and the
+contact shadow survives. Crop came out 553x722, 19.3% of the source.
+
+**Layer detection had to change.** These layers never fully separate — even at
+full spread the outline stays continuous, so looking for empty rows between them
+finds two bands (the burger, and its shadow). What is always there is a
+*narrowing*: the row-width profile dips sharply between one ingredient and the
+next. `necks()` takes the deepest dips by how far each falls below the widest
+point either side, and the boundaries land on the real seams: bun 176..354,
+onion+tomato 354..464, cheese+patty 464..579, lettuce 579..642, bottom bun
+642..747. Verified in the browser — all five labels point at the right food.
+
+**Five labels, not six.** This burger has no pickle or sauce layer and its
+cheddar never separates from the patty, so "Dinamo sos" and a standalone cheddar
+label would both point at nothing. The copy was re-cut to match: Brioche pecivo /
+Paradajz i crveni luk / 100% goveđe meso (sa topljenim cheddarom) / Hrskava
+salata / Tostirano pecivo.
+
+**The sequence.** ScrollTrigger pins the stage and scrubs at 0.6. Progress maps
+to a frame position with a hold from 0.40 to 0.60 — a pose that never stops
+moving cannot be read, and the point of the beat is to look at the ingredients.
+Neighbouring frames cross-dissolve, which is what turns 30 stills into
+continuous motion; it has to be `lighter`, not source-over, because the frames
+carry alpha and painting one over the other leaves two burgers. Every frame is
+preloaded and decoded before the scrub starts. `prefers-reduced-motion` skips
+the pin entirely and renders two stills.
+
+**The transition out** — the actual complaint. The pin used to end and the cream
+menu simply began. The ticker now carries the boundary on a band that fades from
+the story's night blue into the menu's cream, so the colour has already changed
+by the time the grid starts.
+
+**Verified in headless Chrome over CDP** (the browser MCP server was
+disconnected, so this drives chromium directly — `scripts` for it are throwaway,
+in the scratchpad):
+
+- **28 layouts across a 91-step scrub**, 2.5ms of layout total, 0.42ms of script
+  per frame. Layout is not running per frame, which is the rule the old version
+  broke.
+- Loading state confirmed on a throttled production build: progress bar only, no
+  half-shown headline or frames.
+- Reduced motion: no canvas, no pin, two stills, shorter page.
+- Desktop 1440, mobile 390: burger centred and sharp, labels clear of the food
+  and inside the viewport at both.
+
+**Two bugs found and fixed by looking at it**, both worth remembering:
+
+- GSAP tweening `y` on the headline overwrote the `translateY(-50%)` that was
+  centring it, dropping it half a screen. Centred with flex instead.
+- Anything GSAP fades in has to start hidden in CSS, or it flashes at full
+  strength while the frames are still downloading.
+
+**Payload:** desktop sequence 624 KB (30 frames), mobile 184 KB (20 frames),
+stills 58 KB; JS 327 KB / 112 KB gzip, CSS 12.5 KB. The pipeline originally wrote
+a WebP beside every AVIF frame, which nothing fetched — the loader requests AVIF
+only, and a browser that cannot decode it falls back to the stills rather than to
+a WebP sequence. Dropping them took `public/frames` from 2.9 MB to 1.1 MB.
+
+**Files:** everything. New: `index.html`, `vite.config.ts`, `tsconfig.json`,
+`package.json`, `src/**`, `scripts/build-frames.py`, `public/frames/**`,
+`README.md`. Removed: `app/`, `worker/`, `db/`, `drizzle/`, `examples/`,
+`build/`, `tests/`, `.openai/`, `.sites-runtime/`, `.wrangler/`, `.npmrc`, the
+Next/Cloudflare config, both old build scripts, and `HANDOFF.md` (it described
+the project that was just replaced; `README.md` supersedes it).
+
+**TODOs:**
+- Fixed while porting: the language is now read during initial state instead of
+  a `setState` inside an effect, and the headline centring is settled.
+- `assets/source/burger-frames.zip` is 58 MB and tracked, consistent with the
+  masters that were already tracked. Worth moving to LFS or out of git if the
+  repo gets cloned often.
+- No analytics. `LocalBusiness`/`Restaurant` JSON-LD was added in `index.html`.
+
 ### [2026-08-27] Reverted the footage; kept the engine work
 
 **Changes:** Follow-up to the entry below. Two pieces of feedback: a bad zoom
