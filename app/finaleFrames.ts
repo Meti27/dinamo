@@ -9,7 +9,7 @@ export const FINALE_MOBILE_COUNT = 32;
  * background to this before the beat starts, which is what lets the frames be
  * drawn opaque without showing an edge.
  */
-export const FINALE_BACKDROP = "rgb(23, 39, 71)";
+export const FINALE_BACKDROP = "rgb(24, 40, 64)";
 
 /**
  * Where the burger sits inside frame 0, as fractions of the frame. The page
@@ -17,8 +17,8 @@ export const FINALE_BACKDROP = "rgb(23, 39, 71)";
  * previous beat ended on, making the handoff invisible.
  */
 export const FINALE_ANCHOR = {
-  left: 0.1287,
-  top: 0.3104,
-  right: 0.8593,
-  bottom: 0.6745,
+  left: 0.2889,
+  top: 0.1222,
+  right: 0.7111,
+  bottom: 0.6944,
 };

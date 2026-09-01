@@ -94,14 +94,15 @@ export function finaleFrameForStop(stop: number): number {
 }
 
 /**
- * How far the closing beat has taken the stage from the burger sequence, 0..1.
+ * 1 once the closing beat owns the stage.
  *
- * A short cross-fade rather than a hard swap: the two sequences are lined up
- * geometrically but they are separate renders, so cutting between them shows the
- * seam. Over a tenth of a stop it reads as one continuous object.
+ * A swap, not a cross-fade. These frames are opaque, so blending them shows the
+ * burger at half strength *and* this sequence's burger at half strength — one
+ * burger becomes two. The two beats are scaled and offset to share the same
+ * burger at the handoff, which is what makes the cut invisible without one.
  */
 export function finaleTakeover(stop: number): number {
-  return span(stop, WHOLE_HOLD_END, WHOLE_HOLD_END + 0.1);
+  return stop >= WHOLE_HOLD_END ? 1 : 0;
 }
 
 /**
@@ -193,8 +194,16 @@ const finaleH = FINALE_ANCHOR.bottom - FINALE_ANCHOR.top;
 /** how much of the burger element's height the assembled burger should fill */
 const ASSEMBLED_FILL = 0.66;
 
-/** what the picture is scaled by when the burger is whole — see mediaScale */
-export const MEDIA_SCALE = ASSEMBLED_FILL / burgerH;
+/**
+ * What the picture is scaled by when the burger is whole — see mediaScale.
+ *
+ * Never below 1: how much of its frame the assembled burger fills is a property
+ * of the footage, and for a clip whose layers barely travel it already fills
+ * most of it. Scaling *down* to hit a target fill would shrink a hero that was
+ * framed correctly to begin with, so the pull-back only ever engages for footage
+ * that spreads far enough to need it.
+ */
+export const MEDIA_SCALE = Math.max(1, ASSEMBLED_FILL / burgerH);
 
 /**
  * closing element height, as a multiple of the burger element's height.

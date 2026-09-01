@@ -38,22 +38,6 @@ MOBILE_W, MOBILE_Q = 340, 44
 N_EXPLODE, N_REASSEMBLE = 30, 26
 N_EXPLODE_MOBILE, N_REASSEMBLE_MOBILE = 19, 16
 
-# --- layer detection --------------------------------------------------------
-# A row only counts as part of a layer if this fraction of the frame's width is
-# opaque there. Without a floor, one narrow drip of melted cheese reaching down
-# to the patty is enough to read as a continuous body and fuse two layers into
-# one. Measured stable anywhere from 0.04 to 0.12 on the current clip.
-BAND_MIN_W = 0.05
-
-# How the separated pieces map onto the six labelled ingredients, top to bottom.
-# The clip comes apart into eight physical pieces, because the lettuce, the
-# tomato and the onion are three separate objects — but they are one ingredient
-# as far as the page is concerned ("Svježe povrće — hrskava salata, paradajz i
-# crveni luk"), so their three bands are one layer. The build fails loudly if the
-# footage does not separate into exactly sum(LAYER_GROUPS) pieces.
-#   bun · lettuce+tomato+onion · cheddar · patty · pickles+sauce · bottom bun
-LAYER_GROUPS = (1, 3, 1, 1, 1, 1)
-
 # --- matte tuning -----------------------------------------------------------
 OBJ_LO, OBJ_HI = 16.0, 46.0   # object knee, as RGB distance from the backdrop
 BG_HUE_TOL = 0.105            # per-channel ratio spread that still reads as backdrop
@@ -181,8 +165,8 @@ def vspan(alpha, thr=0.35):
     return int(ys.min()), int(ys.max())
 
 
-def bands(alpha, thr=0.55, gap=8, minw=None):
-    on = (alpha > thr).sum(1) > (BAND_MIN_W * alpha.shape[1] if minw is None else minw)
+def bands(alpha, thr=0.55, gap=8):
+    on = (alpha > thr).sum(1) > 3
     out, start = [], None
     for y, v in enumerate(on):
         if v and start is None:
@@ -199,44 +183,30 @@ def bands(alpha, thr=0.55, gap=8, minw=None):
 def find_motion(frames, plate, step):
     """locate the explode and reassemble runs, skipping the clip's static holds
 
-    Two different measurements, because neither one works at both ends.
-
-    *Where the motion starts* is read from the burger's overall height. The very
-    first thing an explosion does is push the outer buns apart, and the height
-    answers to that immediately -- while the layers are still touching, so no
-    fully empty row has appeared yet and a gap measurement is still reading zero.
-    Trusting the gap here starts the run a quarter of the way into the
-    explosion, and the sequence never shows the closed burger at all.
-
-    *Where it ends* is read from the total empty space between the layers. By
-    then the outer buns have long since reached their final positions, so the
-    height has plateaued and would fold most of the static hold into the range,
-    while the gap is still growing as the middle layers finish parting.
+    Measured on the total empty space *between* layers rather than the burger's
+    overall height: the outer buns reach their final positions well before the
+    middle layers finish parting, so height plateaus early and would fold most
+    of the static hold back into the sampled range.
     """
-    gaps, spans = [], []
+    gaps = []
     for i in range(len(frames)):
         _, a = key(np.array(frames[i]), plate)
         t, b = vspan(a)
-        # Same width floor as `bands`: three stray pixels of lettuce fringe are
-        # not a filled row, and counting them as one hides the early separation.
-        filled = ((a > 0.5).sum(1) > BAND_MIN_W * a.shape[1])[t:b + 1].sum()
+        filled = ((a > 0.5).sum(1) > 3)[t:b + 1].sum()
         gaps.append((b - t + 1) - filled)
-        spans.append(b - t + 1)
-
-    g, s = np.array(gaps, float), np.array(spans, float)
-    rest = s <= s.min() + 0.02 * (s.max() - s.min())
-    apart = g >= g.max() - 0.02 * (g.max() - g.min())
-    peak = int(np.argmax(g))
-
-    ex_start = int(np.nonzero(rest[:peak])[0].max())
-    ex_end = int(np.nonzero(apart[:peak + 1])[0].min())
-    re_start = int(np.nonzero(apart[peak:])[0].max() + peak)
-    re_end = int(np.nonzero(rest[re_start:])[0].min() + re_start)
+    h = np.array(gaps, float)
+    lo, hi = h.min(), h.max()
+    near_lo, near_hi = h <= lo + 0.02 * (hi - lo), h >= hi - 0.02 * (hi - lo)
+    peak = int(np.argmax(h))
+    ex_start = int(np.nonzero(near_lo[:peak])[0].max())
+    ex_end = int(np.nonzero(near_hi[:peak + 1])[0].min())
+    re_start = int(np.nonzero(near_hi[peak:])[0].max() + peak)
+    re_end = int(np.nonzero(near_lo[re_start:])[0].min() + re_start)
 
     # Nudge every boundary outward into the neighbouring static hold. The last
-    # sliver of travel barely moves either metric, so an unpadded run can end
-    # with the burger still visibly ajar; the padding frames are near-duplicates
-    # of the hold and cost almost nothing.
+    # sliver of travel barely moves the metric, so an unpadded run can end with
+    # the burger still visibly ajar; the padding frames are near-duplicates of
+    # the hold and cost almost nothing.
     pad = 2
     n = len(frames) - 1
     clamp = lambda i: max(0, min(n, i)) * step
@@ -301,19 +271,11 @@ def main():
     # each layer keeps a fixed share of the overall span. Measure those shares on
     # the fully-exploded frame, then read them back against each frame's span.
     ex_alpha = keyed[N_EXPLODE - 1][1]
-    pieces = bands(ex_alpha)
-    if len(pieces) != sum(LAYER_GROUPS):
-        sys.exit(f"expected {sum(LAYER_GROUPS)} separated pieces at full explode "
-                 f"(LAYER_GROUPS={LAYER_GROUPS}), found {len(pieces)}: {pieces}")
-    six, at = [], 0
-    for n in LAYER_GROUPS:
-        six.append((pieces[at][0], pieces[at + n - 1][1]))
-        at += n
-    print("  layers:", ", ".join(f"{s}..{e}" for s, e in six))
+    six = bands(ex_alpha)
+    if len(six) != 6:
+        sys.exit(f"expected 6 separated layers at full explode, found {len(six)}")
     et, eb = vspan(ex_alpha)
-    # each layer's top, centre and bottom, as fractions of the exploded span
-    shares = [((s - et) / (eb - et), (((s + e) / 2) - et) / (eb - et), (e - et) / (eb - et))
-              for s, e in six]
+    shares = [(((s + e) / 2) - et) / (eb - et) for s, e in six]
 
     # Where the assembled burger sits in the final frame, as fractions of the
     # crop. The closing beat is scaled and offset against this so its opening
@@ -330,15 +292,9 @@ def main():
     for _, a in keyed:
         t, b = vspan(a)
         row = []
-        for s_lo, s_mid, s_hi in shares:
-            centre = t + s_mid * (b - t)
-            # Measured across the layer's full height rather than a few rows at
-            # its middle: a layer that is several pieces has empty backdrop at
-            # its centre, and the widest point is what the label's rule should
-            # run to anyway.
-            top = max(0, int(t + s_lo * (b - t)))
-            bot = max(top + 1, int(t + s_hi * (b - t)) + 1)
-            band = (a > 0.5)[top:bot]
+        for i, share in enumerate(shares):
+            centre = t + share * (b - t)
+            band = (a > 0.5)[max(0, int(centre) - 4):int(centre) + 5]
             xs = np.nonzero(band.any(0))[0]
             lo, hi = (xs.min(), xs.max()) if len(xs) else (0, cw - 1)
             row.append([round((centre - y0) / ch, 4),

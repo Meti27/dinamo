@@ -1,3 +1,69 @@
+### [2026-08-27] Reverted the footage; kept the engine work
+
+**Changes:** Follow-up to the entry below. Two pieces of feedback: a bad zoom
+between beats 3 and 4, and "I preferred the old box animation, we just had
+performance problems". The second is decisive — the animation was fine, the code
+was not — so the footage goes back and every code fix stays.
+
+- **The footage is restored exactly** from `b92218e`: both master clips, both
+  frame sequences, both stills, the generated `burgerFrames.ts` / `finaleFrames.ts`,
+  and both build scripts. Restoring rather than rebuilding means no pipeline risk.
+  The scripts had to go back too: `LAYER_GROUPS = (1,3,1,1,1,1)` asserts eight
+  separated pieces and the old clip gives six, so a rebuild would have hard-failed,
+  and the new `BAND_MIN_W` / span-based `find_motion` were tuned against footage
+  that no longer exists here.
+- **The zoom was mine.** The closing beat is sized to match the burger it takes
+  over from, then rescales to a fixed frame. The old box clip's burger fills 57%
+  of its frame; the new one's filled 36%, so the element started far larger and
+  shrank far further — 1.86x against 1.29x — and the new clip also grew
+  internally, so the two compounded. Restoring the footage puts `FINALE_SCALE`
+  back to 1.422 and the rescale back to the 1.29x that shipped before, now spread
+  over twice as much scrolling because the section is 900svh. Measured across
+  stops 2.5 to 3.4: 818px to 636px.
+- **`mediaScale` is now self-disabling.** `MEDIA_SCALE = ASSEMBLED_FILL / burgerH`
+  came out at 0.81 against the old anchors, which would have *shrunk* a hero that
+  was framed correctly to begin with. It is `Math.max(1, ...)` now, so the
+  pull-back engages only for footage that spreads far enough to need it and is a
+  no-op here. The function is kept — it was right, it just must not fire.
+- **The handoff is a swap again, not a cross-fade.** The previous author's note
+  was explicit and I overrode it without testing: the closing frames are opaque,
+  so blending shows the burger at half strength *and* that sequence's burger at
+  half strength, which doubles it. The two beats are aligned to share the same
+  burger, which is what makes the cut invisible without a blend.
+- `--burger-h` back to 76vh/58vh/42vh, since the old crop is aspect 0.61 rather
+  than the 0.43 the raised values were for.
+
+**Kept, and unaffected by the footage:** no layout reads or writes in the
+animation loop; labels placed by a single `translate3d`; 900svh with the
+hold-based schedule; no speed cap, `FOLLOW_RATE` 11; parallel coarse-to-fine
+frame loading with a nearest-loaded fallback; `ASPECT` read from the generated
+manifest; progress bar on `scaleY`; halo without a blur filter.
+
+**Added `HANDOFF.md`** — a self-contained brief for rebuilding this site in a
+clean project: business facts, the full menu, both translation tables, design
+tokens, page structure, the whole animation design and why each part is the way
+it is, the matting pipeline, and the traps. Written because the repo is ChatGPT
+Sites scaffolding the owner doesn't trust: two build systems (dev is Vite +
+vinext + Cloudflare, build is `next build --webpack`), an unused Drizzle/D1
+layer, a `worker/`, and a 3,347-file `.sites-runtime/`, none of which `app/`
+touches. The app itself is ~1,600 lines and ports cleanly to Vite + React + TS,
+so the recommendation is a port, not a rewrite.
+
+**Files:** `app/burgerStory.ts`, `app/globals.css`, new `HANDOFF.md`; reverted
+`app/burgerFrames.ts`, `app/finaleFrames.ts`, `scripts/build-*.py`,
+`public/burger-seq/`, `public/finale-seq/`, `public/*-still.*`, `assets/source/`
+
+**TODOs:**
+- Beats 3 to 4 verified by compositing the real frames at the sizes `apply()`
+  computes, not in a browser — this environment cannot deliver scroll or keyboard
+  events to the page. Worth one manual scroll-through.
+- The `finale-still` generation added to `build-finale-sequence.py` last session
+  was reverted with the script. The current still matches the current clip, so it
+  is correct today, but it is hand-made and will go stale again if the clip is
+  ever replaced. Worth re-applying.
+- Pre-existing: `npm test` fails on the host-injected `codex-preview` assertion;
+  one lint error at `app/page.tsx:91`.
+
 ### [2026-08-27] New generated footage, and an animation loop that does no layout
 
 **Changes:** Two complaints — laggy on a phone, and on desktop it "skips phases,
