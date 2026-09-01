@@ -33,7 +33,8 @@ src/
   components/         BurgerStory (GSAP/ScrollTrigger), Nav, Menu, Location, Footer
 scripts/build-frames.py   the asset pipeline
 public/frames/        the built sequence (desktop + mobile + stills)
-assets/source/        masters, never served — kept only so frames can be rebuilt
+assets/source/        masters, NOT in git (see .gitignore) — the only way to
+                      rebuild public/frames, so keep your own backup
 ```
 
 ## How the sequence works

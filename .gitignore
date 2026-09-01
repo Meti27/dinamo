@@ -20,3 +20,9 @@ yarn-error.log*
 
 # python
 __pycache__/
+
+# Source masters — the clips and frame exports the sequence is built from.
+# Deliberately not tracked: they are ~85 MB, the site never serves them, and
+# only `npm run frames` needs them. Keep your own backup; they are the only way
+# to rebuild public/frames.
+/assets
