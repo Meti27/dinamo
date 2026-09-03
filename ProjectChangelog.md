@@ -1,3 +1,100 @@
+### [2026-09-03] A second scroll sequence: the ice cream turns a full circle
+
+**Changes:** New footage (`assets/source/ice-cream1.zip`, 30 PNGs, 1920x1080,
+same navy studio backdrop as the burger). Unlike the burger this is a plain
+360-degree turntable — a scoop in a cone that spins in place and never comes
+apart — so it needed no layer geometry, just a straight scrub through the
+frames with a hold at the end for a closing line to be read against.
+
+**Extracted `scripts/matte.py`** — the burger's difference-matting technique
+(reconstruct the backdrop with a low-order surface fit outside the box the
+subject never leaves, then key against it, keeping the contact shadow), factored
+out so `build-frames.py` and the new `build-icecream.py` share one
+implementation instead of two copies drifting apart. Refactor verified
+byte-identical before anything new was built on it: same 1.70/255 residual, same
+553x722 crop, same layer boundaries, same output checksums as before the split.
+
+**The matte residual came out at 14.44/255 extrapolated**, ten times the
+burger's 1.68/255, which stopped me before I trusted it. The actual pipeline
+verification tool turned out to be lying, not the matte: ffmpeg's own
+`-pix_fmt rgba` rawvideo decode does not read the alpha auxiliary stream at all
+from these dual-track AVIFs — confirmed by running the identical decode against
+a known-good burger frame and getting alpha=255 everywhere on that too, which is
+not what a browser sees. Re-decoded with `avifdec` (libavif's own decoder, which
+prints "Alpha: Not premultiplied"): corners at 0, centre at 255, 35.7% coverage,
+clean on both magenta and the site's own navy with no fringing. The higher
+residual is real and footage-specific (the turntable rig's lighting is less
+evenly modelled by the surface fit than the burger's), but it doesn't show — the
+matte's alpha floor and speckle filter already absorb it.
+
+**Generalised `useFrameLoader`** to take a `FrameSource` (`dir`,
+`desktopCount`, `mobileCount`) instead of importing the burger's constants
+directly, so both sequences share the preload-everything-before-scrub loader
+and each gets its own independent loading bar. `FrameCanvas` needed no changes
+— it was already generic.
+
+**`IceCreamStory.tsx`** follows the burger's proven shape exactly, including the
+two fixes from the previous entry: one GSAP timeline on the pinning
+ScrollTrigger with every tween as a `fromTo` declaring both ends (not a
+one-shot entrance fighting a scroll-driven exit over the same `opacity` — that
+bug does not get to happen twice), and the entrance on a child element so
+nothing but the scroll timeline ever touches what it owns. Verified by
+scrolling forward past both closing states and back to the start three times
+each: headline and title opacity are exactly right on every pass.
+
+**Copy**, mirroring the burger's headline/closing-title pattern: an eyebrow +
+two-line headline + intro line that fades out as the spin starts, and a
+kicker + short closing line that fades in as the cone lands back on its last
+frame and stays. BS "Slatko nikad ne čeka." / "Kremasto. Uvijek.", EN
+"Sweetness never waits." / "Creamy. Always." — deliberately a callback to the
+burger's own "Glad ne čeka.", not new invented copy.
+
+**Cleaned up**: `Copy.simple` / `Copy.inPlace` were declared and populated in
+both languages but never rendered anywhere — leftover from the Next.js copy
+that never got wired into the Vite rebuild. Removed rather than repurposed for
+the new fields, so the ice cream copy has its own clearly-named ones instead of
+overloading unrelated dead ones.
+
+**Section design**: `.story-ice` gets 300vh (vs the burger's 400vh) — a straight
+spin needs less scroll runway than a three-beat explode/hold/reassemble story —
+and a warm cream-gold halo instead of the burger's blue, the cheapest way to
+tell the two back-to-back sections apart at a glance. Same navy `.story`
+background both times, so the seam between them is invisible; the ticker still
+carries the one visible transition, now out of the ice cream section into the
+menu instead of out of the burger.
+
+**Verified** (headless Chrome over CDP, 1440x900 and 390x844, plus
+`prefers-reduced-motion`): both sections' headline/title opacity survive
+scrolling past and back, three round trips; 31 layouts across a 141-step scrub
+through both pinned sections combined (28 across 91 through the burger alone
+previously) — the second section adds essentially no layout cost; the ice
+cream's own loading bar tracks real fetch progress independently of the
+burger's (0% -> 7% -> 17% -> 20% observed under a throttled connection); no
+console errors at any size; menu still renders all 14 cards after a nav click
+(unaffected by the new section between it and the burger).
+
+**Payload:** ice cream sequence 493 KB desktop (30 frames) + 163 KB mobile (20
+frames) + ~20 KB of stills. `public/` total with both sequences: ~2 MB.
+
+**Files:** new `scripts/matte.py`, `scripts/build-icecream.py`,
+`src/components/IceCreamStory.tsx`, `src/iceFrames.ts` (generated),
+`public/icecream/`; changed `scripts/build-frames.py` (now imports matte.py),
+`src/sequence/useFrameLoader.ts` (generalised), `src/components/BurgerStory.tsx`
+(passes its FrameSource explicitly), `src/data/copy.ts` (dead fields removed,
+ice cream fields added), `src/App.tsx`, `src/styles.css`, `package.json` (new
+`npm run icecream` script), `README.md`
+
+**TODOs:**
+- `assets/source/ice-cream1.zip` (59 MB) is gitignored like the burger masters
+  — keep your own backup, it's the only way to rebuild `public/icecream/`.
+- Both sequences preload on mount regardless of scroll position, so a first
+  visit now downloads both up front (~1.1 MB avif combined) rather than just
+  the burger's ~620 KB. Matches the burger's existing "preload everything
+  before it starts" policy exactly; not a regression, but worth knowing if a
+  future sequence is added and this starts to add up — a scroll-proximity gate
+  on when each `useFrameLoader` fires would be the fix, not attempted here
+  since it wasn't asked for and 1.1 MB is still small.
+
 ### [2026-09-01] Fixes: scroll-back, the invisible menu, the elliptical logo
 
 **Changes:** Four real bugs, three of which I shipped without catching. Every one

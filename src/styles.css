@@ -48,6 +48,9 @@ h1,h2,h3,p{margin:0}
    viewport stage means three of scrolling, and the sequence opens, HOLDS so the
    labels can actually be read, and closes across it. */
 .story{height:400vh;height:400svh;position:relative;background:var(--night);color:#fff}
+/* the ice cream story is a straight spin, not a three-beat sequence, so it
+   gets less scroll runway than the burger's */
+.story-ice{height:300vh;height:300svh}
 .story-stage{height:100vh;height:100svh;position:relative;overflow:hidden;
   background:radial-gradient(circle at 54% 48%,#0a58a5 0,#073a78 31%,#041d42 67%,#031329 100%)}
 /* a soft frame so the burger never sits flush against the edges */
@@ -64,6 +67,7 @@ h1,h2,h3,p{margin:0}
 .story-halo{position:absolute;z-index:3;left:54%;top:48%;width:46vw;max-width:660px;
   aspect-ratio:1;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;
   background:radial-gradient(circle,#1675d87a 0,#1268c455 22%,#0e55a92e 45%,#0a4a9418 60%,transparent 76%)}
+.story-halo-ice{background:radial-gradient(circle,#f4dfae66 0,#d8b57a3d 30%,#7a5a3220 55%,transparent 76%)}
 
 /* Offset right of the headline on desktop, so the two never fight for the
    middle. FrameCanvas contains and centres the frame inside this box, so moving
@@ -74,6 +78,10 @@ h1,h2,h3,p{margin:0}
 .story-burger{position:absolute;z-index:6;top:8%;bottom:8%;left:12%;right:0}
 .story-burger canvas{position:absolute;inset:0;width:100%;height:100%;display:block;
   /* the drawn frame is contained and centred inside this box by FrameCanvas */
+  pointer-events:none;user-select:none}
+
+.story-scoop{position:absolute;z-index:6;top:10%;bottom:10%;left:12%;right:0}
+.story-scoop canvas{position:absolute;inset:0;width:100%;height:100%;display:block;
   pointer-events:none;user-select:none}
 
 /* Centred with flex, not translateY(-50%): GSAP animates `y` on this element,
@@ -230,6 +238,7 @@ h1,h2,h3,p{margin:0}
   .label{width:168px}
   .label p{display:none}
   .story-burger{top:13%;bottom:11%}
+  .story-scoop{top:12%;bottom:12%}
   .story-headline{max-width:min(30vw,420px)}
 }
 @media(max-width:900px){
@@ -245,6 +254,7 @@ h1,h2,h3,p{margin:0}
   .story-halo{left:50%;top:58%;width:82vw}
   /* full width again, and pushed below the headline */
   .story-burger{left:0;top:20%;bottom:2%}
+  .story-scoop{left:0;top:18%;bottom:4%}
   .story-title{left:22px;bottom:5vh}
   .label{width:170px}
   .label p{display:none}

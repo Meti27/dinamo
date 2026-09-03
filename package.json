@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "frames": "python3 scripts/build-frames.py"
+    "frames": "python3 scripts/build-frames.py",
+    "icecream": "python3 scripts/build-icecream.py"
   },
   "dependencies": {
     "gsap": "^3.13.0",

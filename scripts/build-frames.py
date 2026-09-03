@@ -15,13 +15,11 @@ fully opaque. But the backdrop never moves (measured: 2/255 mean drift across
 all 30 frames), so the burger can be cut out by difference matting and the page
 can own its own background instead of inheriting a 1920x1080 rectangle.
 
-The catch is that the burger never clears the middle of the frame, so a
-per-pixel median recovers the backdrop everywhere *except* exactly where it is
-needed. The backdrop is a smooth gradient with a vignette, so a low-order
-surface is fitted to the pixels outside the box the burger and its shadow never
-leave, and used to predict the rest. Measured: the fit reproduces known
-background at 1.70/255, and a strip it had to extrapolate at 1.68/255 -- so
-extrapolating across the burger is as accurate as interpolating.
+The matting technique (reconstructing the backdrop behind the subject, then
+difference-keying against it) lives in matte.py, shared with
+build-icecream.py. The burger never clears the middle of the frame, so a
+plain per-pixel median can't recover the backdrop there — see matte.py for how
+that is solved.
 
 The subject uses about 16% of the frame's area, so cropping to it is worth
 roughly 30x in pixels before any encoding.
@@ -32,11 +30,13 @@ Requires ffmpeg, avifenc (libavif) and numpy.
 import json
 import os
 import shutil
-import subprocess
 import sys
 import zipfile
 
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from matte import avif, build_plate, key, load  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "assets/source/burger-frames.zip")
@@ -57,16 +57,10 @@ MOBILE_N = 20
 # Only used to decide which pixels are trustworthy background for the fit.
 SUBJECT = (120, 960, 620, 1300)   # top, bottom, left, right
 
-# --- matte tuning -----------------------------------------------------------
-OBJ_LO, OBJ_HI = 16.0, 44.0   # object knee, as RGB distance from the backdrop
-BG_HUE_TOL = 0.10             # per-channel ratio spread that still reads as backdrop
-SHADOW_HI, SHADOW_LO = 0.985, 0.55
-SHADOW_STRENGTH = 0.70
-SHADOW_RGB = np.array([13.0, 10.0, 9.0], np.float32)
-# The surface fit leaves ~1.7/255 of residual, which becomes a faint haze of very
-# low alpha across the whole frame. Without a floor the crop below expands to the
-# entire 1920x1080 and the whole point of cropping is lost.
-ALPHA_FLOOR = 0.10
+# Matte tuning is matte.key()'s defaults, tuned against this footage and left
+# there since build-icecream.py's footage needed the same values. Override with
+# explicit keyword args here if this burger clip is ever reshot and needs
+# different ones — see matte.py for what each knob does.
 
 # --- the five labelled ingredients, top to bottom ---------------------------
 # This burger comes apart into: top bun / onion / tomato / cheese fused to the
@@ -81,89 +75,6 @@ N_LAYERS = 5
 # as far as the page is concerned, so they share a label and six masses become
 # five. The build fails loudly if the footage stops giving sum(LAYER_GROUPS).
 LAYER_GROUPS = (1, 2, 1, 1, 1)
-
-
-def run(cmd, **kw):
-    return subprocess.run(cmd, check=True, **kw)
-
-
-def load(zf, i):
-    """decode one PNG straight from the archive, no extraction"""
-    data = zf.read(f"{i:02d}.png")
-    out = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", "pipe:0", "-pix_fmt", "rgb24",
-         "-f", "rawvideo", "pipe:1"],
-        input=data, capture_output=True, check=True).stdout
-    return np.frombuffer(out, np.uint8).reshape(SRC_H, SRC_W, 3).astype(np.float64)
-
-
-def build_plate(frames):
-    """reconstruct the backdrop, including behind the burger"""
-    med = np.median(np.stack(frames), 0)
-    t, b, l, r = SUBJECT
-    known = np.ones((SRC_H, SRC_W), bool)
-    known[t:b, l:r] = False
-
-    yy, xx = np.mgrid[0:SRC_H, 0:SRC_W].astype(np.float64)
-    ny, nx = yy / SRC_H, xx / SRC_W
-    basis = np.stack([np.ones_like(nx), nx, ny, nx * nx, ny * ny, nx * ny,
-                      nx * nx * ny, nx * ny * ny, ny ** 3, nx ** 3], -1)
-
-    plate = np.zeros((SRC_H, SRC_W, 3))
-    for c in range(3):
-        coef, *_ = np.linalg.lstsq(basis[known], med[..., c][known], rcond=None)
-        plate[..., c] = basis @ coef
-
-    resid = np.abs(plate - med)[known]
-    # a strip inside the box that is still background, so it tests extrapolation
-    probe = np.zeros((SRC_H, SRC_W), bool)
-    probe[t + 20:t + 80, l + 20:r - 20] = True
-    print(f"  backdrop fit: known {resid.mean():.2f}/255 mean, "
-          f"{np.percentile(resid, 99):.2f} p99 | extrapolated "
-          f"{np.abs(plate - med)[probe].mean():.2f}/255")
-    if resid.mean() > 4.0:
-        sys.exit("backdrop fit is too poor to matte against — has the footage changed?")
-    return plate
-
-
-def boxmean(mask, r):
-    p = np.pad(mask.astype(np.float32), r + 1)
-    ii = p.cumsum(0).cumsum(1)
-    h, w = mask.shape
-    k = 2 * r + 1
-    return (ii[k:k + h, k:k + w] + ii[:h, :w] - ii[k:k + h, :w] - ii[:h, k:k + w]) / (k * k)
-
-
-def key(frame, plate):
-    """difference matte -> (rgb, alpha), keeping the contact shadow"""
-    f = frame.astype(np.float32)
-    p = plate.astype(np.float32)
-    dist = np.sqrt(((f - p) ** 2).sum(2))
-    ratio = (f + 3.0) / (p + 3.0)
-
-    # A near-constant per-channel ratio means the backdrop itself got darker --
-    # the shadow the burger casts on it. That is not the burger, but it is not
-    # nothing either, so it earns partial alpha and its own near-black colour.
-    backdrop = ratio.std(2) < BG_HUE_TOL
-    shadow = np.where(
-        backdrop,
-        np.clip((SHADOW_HI - ratio.mean(2)) / (SHADOW_HI - SHADOW_LO), 0, 1) * SHADOW_STRENGTH,
-        0.0)
-    obj = np.where(backdrop, 0.0, np.clip((dist - OBJ_LO) / (OBJ_HI - OBJ_LO), 0, 1))
-
-    oa = obj[..., None]
-    fg = np.clip(np.where(oa > 0.03, (f - (1 - oa) * p) / np.maximum(oa, 0.03), f), 0, 255)
-
-    sh = shadow * (1 - obj)
-    alpha = obj + sh
-    rgb = np.where(alpha[..., None] > 1e-3,
-                   (fg * oa + SHADOW_RGB * sh[..., None]) / np.maximum(alpha, 1e-3)[..., None],
-                   0.0)
-
-    alpha = np.where(alpha < ALPHA_FLOOR, 0.0, alpha)
-    # drop isolated speckle left by the fit's residual
-    alpha = np.where(boxmean(alpha > 0.25, 4) >= 0.30, alpha, 0.0)
-    return np.clip(rgb, 0, 255).astype(np.uint8), alpha.astype(np.float32)
 
 
 def subject_rows(alpha, thr=0.35):
@@ -213,27 +124,6 @@ def necks(alpha, top, bot, want):
     return [(top + edges[i], top + edges[i + 1]) for i in range(len(edges) - 1)]
 
 
-def avif(rgba, sw, sh, w, h, q, dst, webp=False):
-    """ffmpeg's AVIF muxer drops the alpha plane, so hand the frame to avifenc
-
-    `webp` is only for the stills. The sequence itself is fetched as AVIF and
-    nothing else: a browser without AVIF cannot decode the sequence at all and
-    falls back to the stills, so a WebP copy of every frame is a megabyte of
-    payload nothing ever requests.
-    """
-    png = dst + ".png"
-    run(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba",
-         "-s", f"{sw}x{sh}", "-i", "pipe:0",
-         "-vf", f"scale={w}:{h}:flags=lanczos", "-update", "1", png], input=rgba)
-    run(["avifenc", "-y", "420", "-q", str(q), "--qalpha", str(q), "-s", "6",
-         "-j", "all", png, dst], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if webp:
-        run(["ffmpeg", "-v", "error", "-y", "-i", png, "-c:v", "libwebp",
-             "-quality", "78", "-compression_level", "6", "-update", "1",
-             dst.replace(".avif", ".webp")])
-    os.remove(png)
-
-
 def main():
     if not os.path.exists(SRC):
         sys.exit(f"missing {SRC}")
@@ -244,8 +134,8 @@ def main():
     print(f"source {SRC_W}x{SRC_H}, {N_SRC} frames")
 
     print("reconstructing the backdrop…")
-    frames = [load(zf, i) for i in range(1, N_SRC + 1)]
-    plate = build_plate(frames)
+    frames = [load(zf, i, SRC_W, SRC_H) for i in range(1, N_SRC + 1)]
+    plate = build_plate(frames, SRC_W, SRC_H, SUBJECT)
 
     print(f"keying {N_SRC} frames…")
     keyed = [key(f, plate) for f in frames]

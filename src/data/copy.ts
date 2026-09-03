@@ -14,9 +14,14 @@ export type Copy = {
   headline: readonly [string, string];
   intro: string;
   nothingHidden: string; layerByLayer: string;
-  simple: string; inPlace: string;
   scrollOpen: string; ingredientsStep: string; assembling: string; menuBelow: string;
   loading: string; ticker: string;
+  iceEyebrow: string;
+  iceHeadline: readonly [string, string];
+  iceIntro: string;
+  iceKicker: string;
+  iceTitle: string;
+  iceAria: string;
   choose: string; ourMenu: string; filterLabel: string;
   where: string; seeYou: readonly [string, string];
   address: readonly [string, string];
@@ -35,8 +40,6 @@ const bs: Copy = {
   intro: "Skrolaj i upoznaj naš burger.",
   nothingHidden: "NIŠTA NE KRIJEMO",
   layerByLayer: "Sloj po sloj.",
-  simple: "JEDNOSTAVNO. SVJEŽE. UKUSNO.",
-  inPlace: "Sve na svom mjestu.",
   scrollOpen: "SKROLAJ DA OTVORIŠ BURGER",
   ingredientsStep: "NAŠI SASTOJCI",
   assembling: "SASTAVLJAMO",
@@ -58,6 +61,12 @@ const bs: Copy = {
     ["Tostirano pecivo", "Čvrsta baza za burger bez kompromisa."],
   ],
   burgerAria: "Dinamo burger koji se rastavlja na svoje sastojke i ponovo sastavlja",
+  iceEyebrow: "RUČNO PRAVLJEN SLADOLED",
+  iceHeadline: ["Slatko", "nikad ne čeka."],
+  iceIntro: "Skrolaj i upoznaj naš sladoled.",
+  iceKicker: "PRAVIMO GA SVAKI DAN",
+  iceTitle: "Kremasto. Uvijek.",
+  iceAria: "Kugla sladoleda u kornetu koja se okreće za puni krug",
 };
 
 const en: Copy = {
@@ -67,8 +76,6 @@ const en: Copy = {
   intro: "Scroll to discover our burger.",
   nothingHidden: "NOTHING TO HIDE",
   layerByLayer: "Layer by layer.",
-  simple: "SIMPLE. FRESH. DELICIOUS.",
-  inPlace: "Everything in place.",
   scrollOpen: "SCROLL TO OPEN THE BURGER",
   ingredientsStep: "OUR INGREDIENTS",
   assembling: "PUTTING IT BACK",
@@ -90,6 +97,12 @@ const en: Copy = {
     ["Toasted bun", "A solid base for a no-compromise burger."],
   ],
   burgerAria: "The Dinamo burger separating into its ingredients and coming back together",
+  iceEyebrow: "HANDMADE ICE CREAM",
+  iceHeadline: ["Sweetness", "never waits."],
+  iceIntro: "Scroll to discover our ice cream.",
+  iceKicker: "MADE FRESH EVERY DAY",
+  iceTitle: "Creamy. Always.",
+  iceAria: "A scoop of ice cream in a cone rotating a full turn",
 };
 
 export const translations: Record<Lang, Copy> = { bs, en };

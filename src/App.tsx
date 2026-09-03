@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import BurgerStory from "./components/BurgerStory";
 import Footer from "./components/Footer";
+import IceCreamStory from "./components/IceCreamStory";
 import Location from "./components/Location";
 import Menu from "./components/Menu";
 import Nav from "./components/Nav";
@@ -30,6 +31,7 @@ export default function App() {
       <Nav copy={copy} lang={lang} onLang={setLang} />
       <main>
         <BurgerStory copy={copy} />
+        <IceCreamStory copy={copy} />
         <section className="ticker" aria-hidden="true">
           <div><span>{copy.ticker}</span><span>{copy.ticker}</span></div>
         </section>

@@ -4,7 +4,9 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 
 import { FrameCanvas } from "../sequence/FrameCanvas";
 import { useFrameLoader } from "../sequence/useFrameLoader";
-import { ASPECT, LAYER_COUNT, LAYER_GEOMETRY, MOBILE_MAP } from "../frames";
+import {
+  ASPECT, DESKTOP_COUNT, LAYER_COUNT, LAYER_GEOMETRY, MOBILE_COUNT, MOBILE_MAP,
+} from "../frames";
 import type { Copy } from "../data/copy";
 
 gsap.registerPlugin(ScrollTrigger);
@@ -53,7 +55,8 @@ export default function BurgerStory({ copy }: { copy: Copy }) {
     typeof window !== "undefined" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  const load = useFrameLoader(!reduced);
+  const load = useFrameLoader(!reduced,
+    { dir: "frames", desktopCount: DESKTOP_COUNT, mobileCount: MOBILE_COUNT });
   const ready = load.status === "ready";
 
   const steps = [copy.scrollOpen, copy.ingredientsStep, copy.assembling, copy.menuBelow];
