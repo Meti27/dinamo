@@ -25,4 +25,28 @@ gsap.registerPlugin(ScrollTrigger);
 
 ScrollTrigger.config({ ignoreMobileResize: true });
 
+/**
+ * Hand touch scrolling to GSAP.
+ *
+ * This is the one change here with a real trade-off. normalizeScroll takes
+ * the scroll position away from the browser and drives it from GSAP's ticker,
+ * which removes the difference between when the browser scrolls and when the
+ * scrub is allowed to react -- on iOS in particular, native momentum scrolling
+ * delivers scroll events in bursts that a pinned canvas cannot keep up with.
+ *
+ * The cost is that scrolling no longer feels like the operating system's. On a
+ * site that is mostly pinned canvas that usually reads as an improvement; on
+ * the reading sections further down it can read as hijacked. It is isolated in
+ * its own commit for exactly that reason -- revert this commit alone if the
+ * phone says it feels worse.
+ *
+ * It is deliberately not enabled at import time: the preloader locks scrolling
+ * until the first sequence is decoded, and normalizer and lock must not both
+ * be holding the page at once. `enableNormalizedScroll` is called once the
+ * lock is released.
+ */
+export function enableNormalizedScroll() {
+  ScrollTrigger.normalizeScroll(true);
+}
+
 export { ScrollTrigger };
