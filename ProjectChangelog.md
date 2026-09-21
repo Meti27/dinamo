@@ -105,8 +105,18 @@ triggers, and animating only transform/opacity — all already true.
 - **`public/dinamo.jpg` (77KB) appears unreferenced.** Named only in a comment in
   `Logo.tsx` as the photo the logo was cut from, requested by nothing, but it
   still ships to `dist/`. Left in place — deleting assets needs a decision.
-- **`normalizeScroll` needs a real phone.** Headless cannot judge whether it
-  feels hijacked. Revert `4b3180e` alone if it does.
+- **`normalizeScroll` needs a real phone.** Headless cannot judge how a flick
+  feels. It was reported as noticeably slow and then scoped to touch only with
+  its momentum cut from GSAP's 2.8s default to 0.65s (`b5c7110`); a desktop
+  wheel is now untouched by it, measured at 27ms against 25ms with it fully
+  off. To remove it altogether, revert `b5c7110` and `4b3180e` together -- the
+  later commit refines the earlier one, so reverting only `4b3180e` would
+  restore the 2.8s wheel-intercepting version.
+- **The eased feel on every wheel tick is `scroll-behavior: smooth`**
+  (`styles.css:13`), which predates this work. One tick takes ~220ms over 17
+  frames with it, ~30ms in one frame without. If scrolling should feel more
+  immediate, that line is the knob -- but it is also what makes the nav's
+  anchor links glide instead of jump.
 - **Low-end tier is untested on real low-end hardware.** The branch is verified
   to exist and the maths is right, but no device here reports <=4 cores.
 
