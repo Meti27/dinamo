@@ -10,7 +10,20 @@
  * `resize`, which is the only place that measures anything.
  */
 
+import { deviceTier } from "./deviceTier";
+
 export type Bitmaps = readonly (ImageBitmap | HTMLImageElement)[];
+
+/**
+ * How hard to push this canvas. Defaults come from the detected device tier;
+ * they are constructor options only so the caller can override them in a test.
+ */
+export type FrameCanvasOptions = {
+  /** ceiling applied to devicePixelRatio when sizing the backing store */
+  dprCap?: number;
+  /** how finely a cross-dissolve is quantised before it stops repainting */
+  blendSteps?: number;
+};
 
 const sizeOf = (img: ImageBitmap | HTMLImageElement) => ({
   w: "naturalWidth" in img ? img.naturalWidth : img.width,
@@ -24,7 +37,13 @@ export class FrameCanvas {
   private box = { x: 0, y: 0, w: 0, h: 0 };
   private drawn = -1;
 
-  constructor(private canvas: HTMLCanvasElement) {}
+  private readonly dprCap: number;
+  private readonly blendSteps: number;
+
+  constructor(private canvas: HTMLCanvasElement, opts: FrameCanvasOptions = {}) {
+    this.dprCap = opts.dprCap ?? deviceTier.dprCap;
+    this.blendSteps = opts.blendSteps ?? deviceTier.blendSteps;
+  }
 
   setFrames(frames: Bitmaps) {
     this.frames = frames;
@@ -38,7 +57,9 @@ export class FrameCanvas {
   resize() {
     const canvas = this.canvas;
     const rect = canvas.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    // the cap is the single biggest lever on per-frame cost: the backing store
+    // is filled twice per tick, so it scales with the square of this number
+    const dpr = Math.min(window.devicePixelRatio || 1, this.dprCap);
     const w = Math.round(rect.width * dpr);
     const h = Math.round(rect.height * dpr);
     if (canvas.width !== w || canvas.height !== h) {
@@ -85,7 +106,7 @@ export class FrameCanvas {
     const t = pos - lo;
 
     // quantised so an unchanged blend does not repaint
-    const signature = lo * 1000 + Math.round(t * 60);
+    const signature = lo * 1000 + Math.round(t * this.blendSteps);
     if (signature === this.drawn) return;
     this.drawn = signature;
 
