@@ -199,7 +199,27 @@ h1,h2,h3,p{margin:0}
 /* the nav is fixed, so an anchor jump has to stop short of it or the section
    heading lands underneath */
 .menu,.location{scroll-margin-top:70px}
-.menu{background:var(--cream);padding:90px 5vw 100px}
+/* ---------- below the fold ----------
+   These two sit under roughly seven screens of pinned scrolling, so while the
+   sequences are running the browser is still doing style and layout for a menu
+   grid nobody can see. content-visibility:auto skips that until they are close.
+
+   `auto` in contain-intrinsic-size is the part that makes this safe on a
+   scroll-driven page: after a section has been rendered once the browser uses
+   its remembered height, so the document cannot change length underneath a
+   pinned trigger. The explicit value is only the guess used before that, and
+   it is measured, not invented -- and it is the CONTENT box, so the section's
+   190px of vertical padding is subtracted from the height you measure on the
+   element. Getting that wrong is not cosmetic: an estimate that is too tall
+   makes the document shrink as the section realises, which drags the scroll
+   position under a pinned sequence.
+
+   The footer is deliberately left alone: at ~97px there is nothing to skip.
+
+   content-visibility:auto already implies layout, style and paint
+   containment, so no separate `contain` is needed. */
+.menu{background:var(--cream);padding:90px 5vw 100px;
+  content-visibility:auto;contain-intrinsic-size:auto 1704px}
 .menu-head{display:flex;justify-content:space-between;align-items:flex-end;gap:28px;
   flex-wrap:wrap;margin-bottom:46px}
 .menu-head h2{font-size:clamp(44px,6vw,88px);line-height:1;letter-spacing:-.04em;
@@ -232,7 +252,8 @@ h1,h2,h3,p{margin:0}
 /* ---------- location ---------- */
 /* The two halves are the same height and their content is centred in it, so
    neither column ends in a slab of empty colour. */
-.location{display:grid;grid-template-columns:1.05fr .95fr;background:var(--blue);color:#fff;
+.location{content-visibility:auto;contain-intrinsic-size:auto 672px;
+  display:grid;grid-template-columns:1.05fr .95fr;background:var(--blue);color:#fff;
   align-items:stretch}
 .location-copy{padding:110px 5vw;display:flex;flex-direction:column;justify-content:center}
 .location-copy h2{font-size:clamp(44px,5.6vw,84px);line-height:.98;letter-spacing:-.04em;
@@ -281,6 +302,11 @@ h1,h2,h3,p{margin:0}
   .location-copy{padding:90px 6vw}
 }
 @media(max-width:760px){
+  /* measured at 500px wide: the grid stacks, so both get taller. 2307
+     content-box heights measured at that width, the menu's after subtracting
+     its 150px of padding at this breakpoint. */
+  .menu{contain-intrinsic-size:auto 2155px}
+  .location{contain-intrinsic-size:auto 1067px}
   .nav-links{display:none}
   .story-headline{left:0;top:0;bottom:auto;width:100%;max-width:none;
     justify-content:flex-start;padding:15vh 6vw 0;text-align:center}
