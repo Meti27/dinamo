@@ -1,3 +1,117 @@
+### [2026-09-21] Mobile scroll performance: the pixels, the address bar, and the boot
+
+**Changes:** Ten commits on `perf/mobile-scroll`, one per change, so any single
+one can be reverted on its own. The brief arrived as a broad performance
+checklist; most of it was already implemented here, so this is the subset that
+was genuinely missing plus four causes of jank the checklist did not name. The
+skipped items and why are recorded at the end.
+
+**The real problem was fill rate and forced layout, not page weight.** Mobile
+visitors were already getting AVIF, a separate 360x470 twenty-frame mobile set,
+off-main-thread decode, repaint-only-on-change, measurement hoisted out of the
+scrub, 100svh, font preloading and a reduced-motion fallback.
+
+**`FrameCanvas` capped devicePixelRatio at 2.5.** On a DPR-3 phone that is a
+975x2110 backing store on a 390x844 viewport, cleared and filled *twice* per
+tick because the frames cross-dissolve with `lighter`. Cost scales with the
+square of that cap. New `deviceTier` module caps at 2, or 1.5 when the device
+reports <=4 cores or <=4GB. Measured in headless Chrome at DPR 3: implied cap
+exactly 2.00, 1.15 Mpx instead of 1.79 Mpx. The dissolve itself is kept at every
+tier — dropping it is cheaper still but twenty stills without it read as
+stepping, which is the thing the dissolve exists to prevent.
+
+**The mobile address bar was refreshing every ScrollTrigger, mid-scroll.**
+Hiding and showing it fires a resize on every change of scroll direction, which
+made ScrollTrigger recalculate both pinned triggers *and* made both stories run
+`measure()` — `getBoundingClientRect` plus `offsetWidth`/`offsetHeight` on five
+labels — forcing synchronous layout during the scroll. Two halves to the fix:
+`ScrollTrigger.config({ ignoreMobileResize: true })` for ScrollTrigger's own
+refresh, and `onViewportChange` for ours, which ignores a height-only change
+under 120px and debounces the rest into a frame. Drift is tracked from the last
+size actually honoured so ignored changes cannot accumulate into a missed one.
+
+**Both sequences used to load at mount**, twelve parallel connections, with the
+burger competing against a section a screen and a half below it. It also meant
+both decoded at once, and an ImageBitmap is uncompressed RGBA: ~25MB resident
+for forty mobile frames. The ice cream now waits for the preloader to release
+*and* for an IntersectionObserver at 150% root margin. Verified: zero
+`/icecream/` requests before scroll, all twenty after.
+
+**Full-screen preloader with a scroll lock**, replacing the per-story in-stage
+bar for the burger. Locked in a layout effect so there is no frame in which the
+page can be scrolled, with `scrollRestoration` forced to manual — a reload
+otherwise restores the old offset, fights the lock and lands the visitor inside
+a pinned section whose frames do not exist. On release ScrollTrigger refreshes
+and only then does the normalizer take over. Verified under throttling with real
+wheel events: 4000px of input while locked moved the page 0px; the same input
+after release moved it 2066px.
+
+**Decisions:**
+
+- *Full-screen loader over keeping the inline bar.* Asked, because it adds a
+  visible screen to a site whose design was explicitly not to change. Chosen
+  deliberately with that understood.
+- *Low-end mode is resolution-only.* Asked. Capping DPR and coarsening the blend
+  quantisation, but never dropping the cross-dissolve, so motion stays
+  continuous on every device.
+- *`normalizeScroll` is its own commit.* It takes scrolling away from the OS,
+  which on the pinned sections usually reads as better and on the reading
+  sections can read as hijacked. Isolated so it can be reverted alone after a
+  real phone test. It is exposed as a function the boot gate calls rather than
+  run at import, because the lock and the normalizer must not both hold the page.
+- *`contain-intrinsic-size` is the content box.* The first attempt used the
+  measured element height for `.menu`, which is 190px of padding too tall, so
+  the document shrank by exactly that when the section realised — on a
+  scroll-driven page that drags the scroll position under a pinned sequence.
+  Verified against a no-content-visibility control at both widths: document
+  height now identical and constant through a full scroll (8484 at 1440px, 8882
+  at 500px). The footer is left alone; at ~97px there is nothing to skip.
+- *Backdrop blur kept for pointer devices only.* The nav is fixed and
+  full-width, so its blur is recomposited every scroll frame. It was already 95%
+  opaque, so the touch version goes to 98% and looks essentially the same.
+- *`.story-grid` had `will-change: opacity` and is completely static* — no
+  tween, ref or selector touches it. That was a full-screen compositor layer for
+  the life of the page in exchange for nothing.
+
+**Weight (mobile, bytes):** critical path 769,414 -> 605,953 (-21%), by moving
+the ice cream sequence off it. Total first visit with everything scrolled
+1,260,065 -> 1,177,073 (-6.6%), from re-encoding one menu image. JS grew 2,320
+and CSS 1,168 for the new modules.
+
+**`public/menu/drinks-ice-tea.avif` was exactly 131,072 bytes** at the same
+520x520 as every other menu image and roughly three times any of them — the
+signature of a file from a different pipeline. Re-encoded at AVIF q80 to 44,592
+B, DSSIM 0.0066, below the visible threshold. Original kept in `assets-backup/`.
+
+**Files:** new `src/sequence/deviceTier.ts`, `scrollConfig.ts`,
+`onViewportChange.ts`, `useBoot.ts`, `prefersReducedMotion.ts`,
+`useNearViewport.ts`, `src/components/Preloader.tsx`, `assets-backup/`;
+modified `src/sequence/FrameCanvas.ts`, `src/components/BurgerStory.tsx`,
+`IceCreamStory.tsx`, `src/App.tsx`, `src/styles.css`,
+`public/menu/drinks-ice-tea.avif`.
+
+**Skipped, deliberately:** all video-scrubbing work (no video), Three.js/WebGL
+(none), disabling Lenis (not used), converting frames to WebP at 1280px (already
+AVIF at 360px — a downgrade), a smaller set under 768px and a reduced mobile
+frame count (already done), replacing scroll listeners (the only one is Nav's,
+already passive and trivial), removing `background-attachment: fixed` and
+`filter: blur` (neither exists; the stylesheet documents blur being avoided on
+purpose), lazy-loading and width/height on images, 100svh, font preload and
+`font-display: swap`, the reduced-motion fallback, removing markers and killing
+triggers, and animating only transform/opacity — all already true.
+
+**TODOs:**
+
+- **`public/dinamo.jpg` (77KB) appears unreferenced.** Named only in a comment in
+  `Logo.tsx` as the photo the logo was cut from, requested by nothing, but it
+  still ships to `dist/`. Left in place — deleting assets needs a decision.
+- **`normalizeScroll` needs a real phone.** Headless cannot judge whether it
+  feels hijacked. Revert `4b3180e` alone if it does.
+- **Low-end tier is untested on real low-end hardware.** The branch is verified
+  to exist and the maths is right, but no device here reports <=4 cores.
+
+---
+
 ### [2026-09-03] A second scroll sequence: the ice cream turns a full circle
 
 **Changes:** New footage (`assets/source/ice-cream1.zip`, 30 PNGs, 1920x1080,
