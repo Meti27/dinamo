@@ -3,10 +3,11 @@ import gsap from "gsap";
 
 import "../sequence/scrollConfig";
 import { FrameCanvas } from "../sequence/FrameCanvas";
-import { useFrameLoader } from "../sequence/useFrameLoader";
+import type { LoadState } from "../sequence/useFrameLoader";
 import { onViewportChange } from "../sequence/onViewportChange";
+import { prefersReducedMotion } from "../sequence/prefersReducedMotion";
 import {
-  ASPECT, DESKTOP_COUNT, LAYER_COUNT, LAYER_GEOMETRY, MOBILE_COUNT, MOBILE_MAP,
+  ASPECT, LAYER_COUNT, LAYER_GEOMETRY, MOBILE_MAP,
 } from "../frames";
 import type { Copy } from "../data/copy";
 
@@ -39,7 +40,12 @@ type Metrics = {
   labelH: number[];
 };
 
-export default function BurgerStory({ copy }: { copy: Copy }) {
+/**
+ * The frames arrive as a prop rather than being fetched here: they are what the
+ * preloader waits on, so App owns the load and this renders whatever state it
+ * is in. The three branches below are unchanged — ready, reduced, unsupported.
+ */
+export default function BurgerStory({ copy, load }: { copy: Copy; load: LoadState }) {
   const sectionRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -50,12 +56,7 @@ export default function BurgerStory({ copy }: { copy: Copy }) {
   const progressRef = useRef<HTMLSpanElement>(null);
   const labelRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  const reduced =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  const load = useFrameLoader(!reduced,
-    { dir: "frames", desktopCount: DESKTOP_COUNT, mobileCount: MOBILE_COUNT });
+  const reduced = prefersReducedMotion;
   const ready = load.status === "ready";
 
   const steps = [copy.scrollOpen, copy.ingredientsStep, copy.assembling, copy.menuBelow];
@@ -310,15 +311,6 @@ export default function BurgerStory({ copy }: { copy: Copy }) {
             </div>
           ))}
         </div>
-
-        {load.status === "loading" && (
-          <div className="story-loading" role="status">
-            <span className="story-loading-bar">
-              <span style={{ transform: `scaleX(${load.progress})` }} />
-            </span>
-            <em>{copy.loading} {Math.round(load.progress * 100)}%</em>
-          </div>
-        )}
 
         <div className="story-rail" aria-hidden="true"><span ref={progressRef} /></div>
         <p className="story-step" ref={stepRef}>{steps[0]}</p>

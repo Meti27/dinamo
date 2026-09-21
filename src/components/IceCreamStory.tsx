@@ -5,6 +5,7 @@ import "../sequence/scrollConfig";
 import { FrameCanvas } from "../sequence/FrameCanvas";
 import { useFrameLoader } from "../sequence/useFrameLoader";
 import { onViewportChange } from "../sequence/onViewportChange";
+import { prefersReducedMotion } from "../sequence/prefersReducedMotion";
 import { ASPECT, DESKTOP_COUNT, MOBILE_COUNT } from "../iceFrames";
 import type { Copy } from "../data/copy";
 
@@ -24,7 +25,12 @@ type Metrics = {
   boxH: number;
 };
 
-export default function IceCreamStory({ copy }: { copy: Copy }) {
+/**
+ * `booted` is the preloader having released the page. This sequence is below
+ * the fold, so loading it while the burger is still decoding only takes
+ * bandwidth and decode time away from the thing actually on screen.
+ */
+export default function IceCreamStory({ copy, booted }: { copy: Copy; booted: boolean }) {
   const sectionRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -33,11 +39,9 @@ export default function IceCreamStory({ copy }: { copy: Copy }) {
   const titleRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLSpanElement>(null);
 
-  const reduced =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reduced = prefersReducedMotion;
 
-  const load = useFrameLoader(!reduced,
+  const load = useFrameLoader(!reduced && booted,
     { dir: "icecream", desktopCount: DESKTOP_COUNT, mobileCount: MOBILE_COUNT });
   const ready = load.status === "ready";
 
