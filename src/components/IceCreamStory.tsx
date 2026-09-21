@@ -1,13 +1,11 @@
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
 
+import "../sequence/scrollConfig";
 import { FrameCanvas } from "../sequence/FrameCanvas";
 import { useFrameLoader } from "../sequence/useFrameLoader";
 import { ASPECT, DESKTOP_COUNT, MOBILE_COUNT } from "../iceFrames";
 import type { Copy } from "../data/copy";
-
-gsap.registerPlugin(ScrollTrigger);
 
 /**
  * Where the spin lands versus where it holds, as fractions of the pinned

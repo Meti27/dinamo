@@ -1,15 +1,13 @@
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
 
+import "../sequence/scrollConfig";
 import { FrameCanvas } from "../sequence/FrameCanvas";
 import { useFrameLoader } from "../sequence/useFrameLoader";
 import {
   ASPECT, DESKTOP_COUNT, LAYER_COUNT, LAYER_GEOMETRY, MOBILE_COUNT, MOBILE_MAP,
 } from "../frames";
 import type { Copy } from "../data/copy";
-
-gsap.registerPlugin(ScrollTrigger);
 
 /**
  * The beat schedule, as fractions of the pinned scroll.
