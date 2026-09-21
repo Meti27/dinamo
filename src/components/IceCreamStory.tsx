@@ -6,6 +6,7 @@ import { FrameCanvas } from "../sequence/FrameCanvas";
 import { useFrameLoader } from "../sequence/useFrameLoader";
 import { onViewportChange } from "../sequence/onViewportChange";
 import { prefersReducedMotion } from "../sequence/prefersReducedMotion";
+import { useNearViewport } from "../sequence/useNearViewport";
 import { ASPECT, DESKTOP_COUNT, MOBILE_COUNT } from "../iceFrames";
 import type { Copy } from "../data/copy";
 
@@ -41,7 +42,23 @@ export default function IceCreamStory({ copy, booted }: { copy: Copy; booted: bo
 
   const reduced = prefersReducedMotion;
 
-  const load = useFrameLoader(!reduced && booted,
+  /**
+   * Two gates before a single byte of this sequence is fetched.
+   *
+   * `booted` is the preloader having released the page: until then the burger
+   * frames are the only thing that matters, and competing with them for
+   * bandwidth and decode time only delays the screen the visitor is looking at.
+   *
+   * `near` is this section coming within about a screen and a half. Loading
+   * both sequences at once also meant holding both decoded at once, and an
+   * ImageBitmap is uncompressed: twenty mobile frames of each is roughly 25MB
+   * of RGBA resident, which is enough to cause collection pauses on a cheap
+   * phone.
+   */
+  const near = useNearViewport(sectionRef, !reduced);
+  const started = !reduced && booted && near;
+
+  const load = useFrameLoader(started,
     { dir: "icecream", desktopCount: DESKTOP_COUNT, mobileCount: MOBILE_COUNT });
   const ready = load.status === "ready";
 
@@ -189,7 +206,7 @@ export default function IceCreamStory({ copy, booted }: { copy: Copy; booted: bo
           <canvas ref={canvasRef} role="img" aria-label={copy.iceAria} />
         </div>
 
-        {load.status === "loading" && (
+        {started && load.status === "loading" && (
           <div className="story-loading" role="status">
             <span className="story-loading-bar">
               <span style={{ transform: `scaleX(${load.progress})` }} />
