@@ -27,7 +27,12 @@ h1,h2,h3,p{margin:0}
   display:flex;align-items:center;justify-content:space-between;color:#fff;
   transition:height .35s,background .35s,border-color .35s;
   background:linear-gradient(#061d41cc,transparent);border-bottom:1px solid transparent}
-.nav.scrolled{height:70px;background:#061f49f2;backdrop-filter:blur(14px);border-bottom-color:#ffffff20}
+/* No backdrop-filter by default. This is a fixed, full-width bar over a
+   scrolling page, so a backdrop blur has to be recomposited on every scroll
+   frame -- on a phone that is a full-width readback for the whole length of
+   the page. At 98% opacity there is almost nothing behind it to blur anyway.
+   The blur is added back below for pointer devices, where it is free. */
+.nav.scrolled{height:70px;background:#061f49fa;border-bottom-color:#ffffff20}
 .brand{display:flex;align-items:center;gap:12px;font-weight:900;letter-spacing:.14em;font-size:15px}
 .brand img{width:44px;height:44px;display:block}
 .nav-links{display:flex;gap:26px;font-size:14px}
@@ -35,12 +40,20 @@ h1,h2,h3,p{margin:0}
 .nav-links a:hover{opacity:1}
 .nav-actions{display:flex;align-items:center;gap:14px}
 .lang{display:flex;align-items:center;padding:3px;border:1px solid #ffffff38;
-  background:#031a3d80;border-radius:999px;backdrop-filter:blur(10px)}
+  background:#031a3dd9;border-radius:999px}
 .lang button{min-width:36px;height:30px;padding:0 9px;border:0;border-radius:999px;
   background:transparent;color:#ffffffb0;font-size:11px;font-weight:900;letter-spacing:.08em}
 .lang button.active{background:#fff;color:var(--blue)}
 .nav-call{padding:12px 22px;border-radius:999px;background:var(--red);color:#fff;
   font-weight:900;font-size:12px;letter-spacing:.08em}
+
+/* The glass, restored where the compositor is not also fighting a touch
+   scroll. Backgrounds go back to their translucent values so the blur has
+   something to do. */
+@media(hover:hover) and (pointer:fine){
+  .nav.scrolled{background:#061f49f2;backdrop-filter:blur(14px)}
+  .lang{background:#031a3d80;backdrop-filter:blur(10px)}
+}
 
 /* ---------- the story ----------
    Height is the only timing knob: it sets how much scrolling the whole sequence
@@ -57,7 +70,10 @@ h1,h2,h3,p{margin:0}
 .story-stage:after{content:"";position:absolute;z-index:6;inset:0;pointer-events:none;
   background:linear-gradient(90deg,#021229aa 0,transparent 26%,transparent 74%,#02122988 100%),
              linear-gradient(0deg,#020b18a8,transparent 24%,transparent 76%,#020b1880)}
-.story-grid{position:absolute;z-index:2;inset:0;will-change:opacity;
+/* No will-change here. This layer is decorative and completely static -- no
+   tween, ref or selector touches it -- so promoting it only cost a
+   full-screen compositor layer for the life of the page. */
+.story-grid{position:absolute;z-index:2;inset:0;
   background-image:linear-gradient(#ffffff07 1px,transparent 1px),linear-gradient(90deg,#ffffff07 1px,transparent 1px);
   background-size:70px 70px;
   -webkit-mask-image:radial-gradient(circle,black,transparent 72%);
