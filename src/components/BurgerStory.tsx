@@ -4,6 +4,7 @@ import gsap from "gsap";
 import "../sequence/scrollConfig";
 import { FrameCanvas } from "../sequence/FrameCanvas";
 import { useFrameLoader } from "../sequence/useFrameLoader";
+import { onViewportChange } from "../sequence/onViewportChange";
 import {
   ASPECT, DESKTOP_COUNT, LAYER_COUNT, LAYER_GEOMETRY, MOBILE_COUNT, MOBILE_MAP,
 } from "../frames";
@@ -224,11 +225,13 @@ export default function BurgerStory({ copy }: { copy: Copy }) {
       measure();
       apply(trigger.progress);
     };
-    window.addEventListener("resize", onResize);
+    // not a raw resize listener: on a phone the address bar fires one on every
+    // change of scroll direction, and measure() reads layout
+    const stopWatchingViewport = onViewportChange(onResize);
     document.fonts?.ready.then(onResize).catch(() => {});
 
     return () => {
-      window.removeEventListener("resize", onResize);
+      stopWatchingViewport();
       trigger.kill();
     };
   }, [ready, reduced, load]);
