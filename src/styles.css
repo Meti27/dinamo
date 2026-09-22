@@ -114,10 +114,27 @@ h1,h2,h3,p{margin:0}
 /* Centred with flex, not translateY(-50%): GSAP animates `y` on this element,
    and a transform tween overwrites whatever transform the stylesheet used to
    position it — which silently drops it half a screen. */
+/* Visible from the first paint, and no will-change until it moves.
+   This element contains the h1, which is the largest thing on the first screen
+   and therefore the element largest-contentful-paint is measured on. It used to
+   start at opacity 0 and be revealed by a GSAP entrance that could not run until
+   every frame of the burger sequence had decoded -- which is where a 3.4s LCP
+   render delay came from, on an element whose text was in the HTML all along.
+   The scroll timeline still owns opacity and y from progress 0; it declares
+   autoAlpha:1 as its `from`, so starting visible is what it expects. */
 .story-headline{position:absolute;z-index:7;left:5vw;top:0;bottom:0;
   display:flex;flex-direction:column;justify-content:center;
-  max-width:min(33vw,480px);will-change:transform,opacity;opacity:0;visibility:hidden}
+  max-width:min(33vw,480px)}
 .story-headline.is-shown{opacity:1;visibility:visible}
+/* The entrance, on a child of the element the scrub owns -- nothing else may
+   animate what the scrub animates, or reversing the scrub restores the
+   entrance's recorded values and the headline never comes back. It is a CSS
+   animation rather than a tween so it does not wait for GSAP's chunk, and it
+   starts at the first paint rather than when the frames are decoded. */
+.story-intro{animation:story-rise .9s cubic-bezier(.22,.61,.36,1) both}
+@keyframes story-rise{from{opacity:0;transform:translate3d(0,22px,0)}
+  to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.story-intro{animation:none}}
 .eyebrow{display:flex;align-items:center;gap:12px;font-size:10px;font-weight:900;
   letter-spacing:.2em;color:#cfe0f5}
 .eyebrow span{width:34px;height:2px;background:var(--red);display:block}
@@ -127,7 +144,7 @@ h1,h2,h3,p{margin:0}
   margin:20px 0;text-transform:uppercase;font-weight:900;text-shadow:0 12px 45px #0006}
 .story-headline .lede{font-size:17px;color:#b9d1ee}
 
-.story-title{position:absolute;z-index:7;left:5vw;bottom:9vh;will-change:transform,opacity;
+.story-title{position:absolute;z-index:7;left:5vw;bottom:9vh;
   opacity:0;visibility:hidden}
 .story-title p{font-size:10px;font-weight:900;letter-spacing:.22em;color:var(--gold)}
 .story-title h2{font-size:clamp(40px,5.4vw,84px);line-height:.98;letter-spacing:-.035em;
@@ -137,7 +154,7 @@ h1,h2,h3,p{margin:0}
    canvas box it measured on resize. Nothing here contributes to their position,
    so a frame never invalidates layout. */
 .label{position:absolute;left:0;top:0;z-index:9;width:230px;visibility:hidden;opacity:0;
-  will-change:transform,opacity;text-shadow:0 2px 12px #001936}
+  text-shadow:0 2px 12px #001936}
 .label:before{content:"";position:absolute;top:11px;width:44px;height:1px;
   background:var(--gold);box-shadow:0 0 10px var(--gold)}
 .label span{position:absolute;top:-2px;color:var(--gold);font-size:10px;font-weight:900;letter-spacing:.12em}
@@ -152,7 +169,17 @@ h1,h2,h3,p{margin:0}
 
 .story-rail{position:absolute;z-index:21;right:28px;top:20%;height:60%;width:2px;background:#ffffff20}
 .story-rail span{display:block;width:100%;height:100%;transform:scaleY(0);transform-origin:top;
-  will-change:transform;background:var(--red);box-shadow:0 0 12px var(--red)}
+  background:var(--red);box-shadow:0 0 12px var(--red)}
+
+/* will-change is a promise to the compositor to hold a layer for an element,
+   which is worth making only while that element is actually moving. A stage is
+   on screen for about one screen in ten of this page, and there are eight of
+   these elements per stage. `is-live` is toggled by the pinning ScrollTrigger's
+   onToggle, so the layers exist exactly while the scrub owns them. */
+.story-stage.is-live .story-headline,
+.story-stage.is-live .story-title,
+.story-stage.is-live .label{will-change:transform,opacity}
+.story-stage.is-live .story-rail span{will-change:transform}
 .story-step{position:absolute;z-index:21;right:19px;bottom:5%;writing-mode:vertical-rl;
   font-size:8px;font-weight:900;letter-spacing:.2em;color:#ffffff80}
 

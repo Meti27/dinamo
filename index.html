@@ -13,6 +13,23 @@
     <meta property="og:image" content="/og.jpg" />
     <link rel="preload" as="font" type="font/woff2" href="/fonts/archivo-latin.woff2" crossorigin />
     <link rel="preload" as="font" type="font/woff2" href="/fonts/archivo-latin-ext.woff2" crossorigin />
+    <!-- Frame 0 of the burger sequence: the one image on the first screen, and
+         the thing the page used to be held on a loader waiting for. Discovered
+         by the preload scanner in the document rather than after the bundle has
+         parsed and React has mounted, which is about a second earlier on a
+         phone. `as="fetch"` and not `as="image"` because that is how the loader
+         asks for it -- see useFrameLoader -- and a preload whose destination
+         does not match the request is fetched a second time. `crossorigin` is
+         there for the same reason: a preload without it does not carry the same
+         credentials mode as a bare fetch(), and Chrome then declines to reuse
+         it. Only one of these ever matches: the media query is the same 700px
+         breakpoint the loader picks its image set with, and the reduced-motion
+         clause is there because that visitor gets two stills instead of a
+         sequence and never asks for this file. -->
+    <link rel="preload" as="fetch" type="image/avif" fetchpriority="high"
+      href="/frames/mobile/f00.avif" media="(max-width: 700px) and (prefers-reduced-motion: no-preference)" crossorigin />
+    <link rel="preload" as="fetch" type="image/avif" fetchpriority="high"
+      href="/frames/desktop/f00.avif" media="(min-width: 701px) and (prefers-reduced-motion: no-preference)" crossorigin />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -38,7 +55,23 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- The loader's first screen, in the document.
+
+         Everything else on this page is rendered by React, which means nothing
+         at all was painted until the main bundle had been fetched, parsed and
+         executed -- about 1.4s on a mid-range phone. The first thing a visitor
+         is meant to see is a navy screen with the word on it, and that needs no
+         JavaScript, so it ships as markup and is painted from the HTML.
+
+         React replaces the whole of #root when it mounts, with the same markup
+         plus the progress caption, so there is nothing to hydrate and nothing
+         that can mismatch. It must keep matching src/components/Preloader.tsx:
+         if the class names there change, change them here too. The caption is
+         deliberately left out -- it is the one part of this that is translated,
+         and the language is not known until the bundle has run. -->
+    <div id="root"><div class="preloader" role="status" aria-busy="true"><div
+      class="preloader-inner"><span class="preloader-word">DINAMO</span><span
+      class="preloader-bar"><span></span></span></div></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
