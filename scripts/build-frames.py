@@ -46,11 +46,24 @@ N_SRC = 30
 SRC_W, SRC_H = 1920, 1080
 
 # --- output shape -----------------------------------------------------------
+# 560px is likewise upscaled ~1.55x at the desktop 1.5 DPR cap; 720 matches it.
+# Measured at 720/q48: 775 KB for the set, against 639 KB today.
 DESKTOP_W, DESKTOP_Q = 560, 50
 MOBILE_W, MOBILE_Q = 360, 46
-# Mobile drops frames as well as pixels. 20 of 30 is safe because the canvas
-# cross-dissolves between neighbours, so a coarser set reads as continuous
-# motion rather than as steps -- see FrameCanvas.
+# Mobile drops frames as well as pixels.
+#
+# 20 of 30 used to be safe because the canvas cross-dissolved between
+# neighbours, which turns a coarse set into continuous motion. THAT IS NO LONGER
+# TRUE ON MOBILE: the dissolve was removed there for fill rate, so a mobile
+# frame is now held on screen until the next integer index arrives and the
+# sequence steps. If this set is ever rebuilt, 30 (every frame) is the value to
+# use -- measured at 480px wide and q44 that is 394 KB against 188 KB today, and
+# none of it is on the critical path any more; only frame 0 is fetched before
+# the page is released. See FrameCanvas.draw and deviceTier.canvasBudget.
+#
+# 360px is also narrower than the canvas it is drawn into: at the 1.25 DPR cap a
+# 393px-wide phone gives a 491px backing store, so the frame is upscaled 1.36x.
+# 480 is the width that matches that cap without spending pixels nobody sees.
 MOBILE_N = 20
 
 # --- the box the burger and its shadow never leave --------------------------

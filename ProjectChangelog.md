@@ -1,3 +1,121 @@
+### [2026-09-22] Scroll and boot: fill rate, the dissolve, and what the first paint waits for
+
+**Changes:** A second performance pass over the same brief, against the state
+the first one left. Measured before and after on an emulated mid-range Android
+(393x852 at DPR 3, 6x CPU throttle) with a scripted full-page scroll, and with
+Lighthouse mobile:
+
+| | before | after |
+|---|---|---|
+| scroll, frames per second | 33.8 | 55.5 |
+| scroll, 95th percentile frame | 66.7ms | 33.2ms |
+| scroll, frames over 33ms | 104 | 13 |
+| scroll, long tasks / total | 68 / 4437ms | 2 / 133ms |
+| megapixels filled over one scroll | 124.9 | 39.7 |
+| Lighthouse LCP | 3828ms | 2164ms |
+| Lighthouse FCP | 1562ms | 1249ms |
+| Lighthouse performance | 0.88 | 0.99 |
+| first paint, real throttling | 1402ms | 568ms |
+| critical-path JS, gzipped | 114.8 KB | 70.0 KB |
+
+**The headline was the LCP element and it was waiting for twenty AVIF frames.**
+`largest-contentful-paint` was 3828ms with 3374ms of *render delay* on `<h1>`:
+`.story-headline` started at `opacity:0` in the stylesheet and was only revealed
+by a GSAP entrance that could not run until every frame had decoded. The text
+was in the HTML the whole time. The headline now starts visible, its entrance is
+a CSS animation on a child that runs at the first paint, and the boot gate waits
+for frame 0 rather than the whole sequence.
+
+**The loader's first screen is now in index.html.** Everything was rendered by
+React, so nothing at all was painted until the 221KB bundle had been fetched,
+parsed and run. The navy screen with the word on it needs no JavaScript. React
+replaces `#root` wholesale when it mounts, so there is nothing to hydrate and
+nothing that can mismatch. First paint went from 1402ms to 568ms under real
+throttling.
+
+**Frames load frame-0-first, then the tail in an idle callback**, four lanes
+instead of six, with progress published every tenth frame instead of every
+frame (twenty React renders of the whole tree to move a progress bar).
+`FrameCanvas` clamps a scrub to the frames that have actually decoded, so a
+scroll that outruns the load holds on the last real frame instead of showing a
+hole.
+
+**The cross-dissolve is off on mobile and under reduced motion**, one
+`drawImage` per integer frame index. Asked and decided deliberately, reversing
+the previous session's call: it is the cheapest the scrub can be and it is a
+visible trade -- twenty stills over four viewports step rather than glide.
+`deviceTier.canvasBudget().crossfade` is the one place to flip it back.
+
+**The DPR cap is now the source's resolution, not the device's.** 1.25 on
+mobile and 1.5 on desktop, replacing a flat 2. This costs nothing visible
+because the frames are 360px and 560px wide: at the old cap a 393px phone was
+interpolating a 786px backing store out of a 360px picture. Mobile backing store
+786x1329 -> 491x831.
+
+**Both fonts are subset to the characters the site sets** -- 67,536 bytes of
+Google's default subsets down to 24,860, on two files preloaded ahead of the
+first paint. `scripts/subset-font.py`, with the originals in `assets-backup/`.
+
+**Files:** new `src/sequence/sequences.ts`, `src/debug/perf.ts`,
+`scripts/subset-font.py`, `public/dinamo-logo-128.{avif,webp}`,
+`assets-backup/archivo-latin{,-ext}.full.woff2`; modified `index.html`,
+`src/main.tsx`, `src/App.tsx`, `src/components/{BurgerStory,IceCreamStory,Logo,Nav}.tsx`,
+`src/sequence/{FrameCanvas,deviceTier,scrollConfig,useBoot,useFrameLoader}.ts`,
+`src/styles.css`, `scripts/build-{frames,logo}.py`,
+`public/fonts/archivo-latin{,-ext}.woff2`.
+
+**Decisions:**
+
+- *The page is scrollable before the sequence has finished loading.* This
+  reverses "nothing should ever be seen half-loaded" for the tail of the
+  sequence only: frame 0, the fonts and ScrollTrigger are still gated. The
+  mitigation is the clamp in `FrameCanvas.setAvailable`, and the loader is still
+  on screen on any connection slow enough for it to show.
+- *GSAP is a dynamic import and part of the boot gate.* It is a third of the
+  JavaScript and nothing on the first screen needs it, but the page must not be
+  scrollable before the pins exist -- so it is loaded early and waited for,
+  rather than being in front of the first paint. Under reduced motion it is
+  never requested at all.
+- *`alpha: false` was not applied to the canvas context*, though the brief asked
+  for it: the frames are matted with transparency and the stage behind them is a
+  gradient with a halo and a grid in it. An opaque context paints black over all
+  of that. `desynchronized: true` is applied.
+- *No Lenis.* The brief made it conditional on there being no smooth-scroll
+  library; `ScrollTrigger.normalizeScroll` owns touch and `scroll-behavior:
+  smooth` owns anchors. Adding Lenis on top would be a third thing easing the
+  same scroll, for desktop only, which is not where the problem is.
+- *No `bitmap.close()` after a section is scrolled past.* Both sets resident are
+  about 25MB of RGBA; releasing them breaks scrolling back up, which is a
+  certainty rather than a risk.
+- *No IntersectionObserver around the draws.* Measured instead: zero draws
+  happen while both canvas sections are off screen -- ScrollTrigger already
+  stops calling `onUpdate` outside the trigger's range. A `document.hidden`
+  guard was added to `draw`, which is the case ScrollTrigger does not cover.
+
+**TODOs:**
+
+- **The mobile frame set should be regenerated now that the dissolve is gone.**
+  30 frames instead of 20, at 480px wide instead of 360 (which is what the 1.25
+  DPR cap actually draws). Measured from the real source: 394 KB at q44 against
+  188 KB today, and none of it is on the critical path any more. Desktop at
+  720px/q48 is 775 KB against 639 KB. Constants are at the top of
+  `scripts/build-frames.py`.
+- **A scroll-scrubbed video was evaluated and rejected**: these frames carry
+  alpha (`srgba`), and neither H.264 nor VP9 in a `<video>` carries an alpha
+  channel that Safari and Chrome both accept, so the navy gradient and the halo
+  would have to be baked in and could no longer be responsive behind the food.
+- **The subset fonts will silently fall back to Helvetica** for any character
+  outside the kept ranges -- the accented Latin-1 letters most likely. The
+  ranges are listed in `scripts/subset-font.py` and must stay in step with the
+  `unicode-range` declarations in `styles.css`.
+- **Numbers are from headless Chrome**, which does not rasterise like a phone;
+  synthesized *touch* scrolling does not work there at all (verified against a
+  plain page, so it is the emulation and not the site), so the scroll benchmark
+  drives the page with wheel gestures. The FPS figures are comparable between
+  runs, not absolute.
+
+---
+
 ### [2026-09-21] Mobile scroll performance: the pixels, the address bar, and the boot
 
 **Changes:** Ten commits on `perf/mobile-scroll`, one per change, so any single
