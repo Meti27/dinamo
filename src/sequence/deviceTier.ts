@@ -1,21 +1,34 @@
 /**
- * How hard this device can be pushed, decided once.
+ * How hard this device can be pushed.
  *
  * Everything expensive about the scroll sequence scales with the number of
- * pixels the canvas has to fill: `FrameCanvas` clears the backing store and
- * draws the frame twice per tick to cross-dissolve, so the cost per scrub frame
- * is roughly `width * height * dpr^2 * 2`. Capping the device pixel ratio is
- * therefore the only knob that changes the cost by a large factor without
- * changing what the animation looks like.
+ * pixels the canvas has to fill, so the ceiling on `devicePixelRatio` is the
+ * one knob that changes the cost by a large factor.
  *
- * The previous cap was 2.5, which on a DPR-3 phone means a 975x2110 backing
- * store on a 390x844 viewport — over two million pixels, twice, every frame.
- * Capping at 2 costs nothing visible at these sizes and removes a third of the
- * fill; 1.5 on a weak device removes nearly two thirds.
+ * The cap is low because the *source* is small. The mobile frames are 360px
+ * wide and the desktop frames 560px; on a 393px-wide phone a cap of 1.25 gives
+ * a ~490px backing store, which is already more pixels than the frame has. Any
+ * cap above that is spent upscaling a 360px image — pure fill cost for no
+ * detail. That is what makes 1.25/1.5 free rather than a compromise: the
+ * previous cap of 2 was interpolating 786px of canvas out of 360px of picture.
  *
- * The dissolve itself stays on at every tier. Dropping it would be cheaper
- * still, but twenty stills without it read as stepping rather than motion, and
- * that is the thing the sequence exists to avoid.
+ * The blend is quantised hard for the same reason it exists at all. A dissolve
+ * that rounds to the step already on screen is not repainted, so `blendSteps`
+ * is directly the ceiling on repaints between one pair of frames. Sixty was
+ * finer than any eye can follow across a pair of frames that are 1/20th of a
+ * sequence apart; eight is not distinguishable in motion and repaints at most
+ * eight times instead of sixty.
+ *
+ * `crossfade` is off on mobile and under reduced motion: one `drawImage` per
+ * integer frame index, no second draw and no `lighter` pass. That is the
+ * cheapest the scrub can be, and it is a visible trade — twenty stills over
+ * four viewports means each is held for many display frames, so the burger
+ * steps rather than glides. Chosen deliberately; flip `crossfade` back to true
+ * here to undo it.
+ *
+ * The viewport class is re-read on every call rather than frozen at import,
+ * because a desktop window dragged narrow, or a phone rotated, crosses the
+ * boundary — and `FrameCanvas.resize` asks again each time it re-measures.
  */
 
 declare global {
@@ -25,33 +38,41 @@ declare global {
   }
 }
 
-export type DeviceTier = {
-  /** true when the device looks like it will struggle: few cores or little RAM */
-  readonly lowEnd: boolean;
-  /** ceiling for devicePixelRatio when sizing a canvas backing store */
-  readonly dprCap: number;
-  /**
-   * How finely a cross-dissolve between two frames is quantised. A blend that
-   * rounds to the same step as the one already on screen is not repainted, so
-   * this is directly the ceiling on repaints per pair of frames.
-   */
-  readonly blendSteps: number;
-};
+/** the same breakpoint the frame loader picks its image set with */
+const MOBILE_QUERY = "(max-width: 700px)";
+const REDUCED_QUERY = "(prefers-reduced-motion: reduce)";
 
-function detect(): DeviceTier {
-  if (typeof navigator === "undefined") {
-    return { lowEnd: false, dprCap: 2, blendSteps: 60 };
-  }
+/** one MediaQueryList each, created once — matchMedia itself is not free */
+const mobileMedia = typeof window !== "undefined" ? window.matchMedia(MOBILE_QUERY) : null;
+const reducedMedia = typeof window !== "undefined" ? window.matchMedia(REDUCED_QUERY) : null;
+
+/** true when the device looks like it will struggle: few cores or little RAM */
+function detectLowEnd(): boolean {
+  if (typeof navigator === "undefined") return false;
   // both are absent on some browsers; assume a capable device rather than
   // punishing every Safari user for not shipping the Device Memory API
   const cores = navigator.hardwareConcurrency ?? 8;
   const memory = navigator.deviceMemory ?? 8;
-  const lowEnd = cores <= 4 || memory <= 4;
-  return {
-    lowEnd,
-    dprCap: lowEnd ? 1.5 : 2,
-    blendSteps: lowEnd ? 20 : 60,
-  };
+  return cores <= 4 || memory <= 4;
 }
 
-export const deviceTier: DeviceTier = Object.freeze(detect());
+export const lowEnd = detectLowEnd();
+
+export type CanvasBudget = {
+  /** ceiling for devicePixelRatio when sizing a canvas backing store */
+  readonly dprCap: number;
+  /** how finely a cross-dissolve is quantised before it stops repainting */
+  readonly blendSteps: number;
+  /** false: draw one frame per integer index, no second draw and no "lighter" */
+  readonly crossfade: boolean;
+};
+
+export function canvasBudget(): CanvasBudget {
+  const mobile = mobileMedia?.matches ?? false;
+  const reduced = reducedMedia?.matches ?? false;
+  return {
+    dprCap: mobile ? (lowEnd ? 1 : 1.25) : lowEnd ? 1.25 : 1.5,
+    blendSteps: 8,
+    crossfade: !mobile && !reduced,
+  };
+}
