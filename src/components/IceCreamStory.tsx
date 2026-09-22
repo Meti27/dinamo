@@ -1,13 +1,13 @@
 import { useEffect, useRef } from "react";
-import gsap from "gsap";
 
-import "../sequence/scrollConfig";
 import { FrameCanvas } from "../sequence/FrameCanvas";
+import { loadScrollKit } from "../sequence/scrollConfig";
+import { ICE_FRAMES } from "../sequence/sequences";
 import { useFrameLoader } from "../sequence/useFrameLoader";
 import { onViewportChange } from "../sequence/onViewportChange";
 import { prefersReducedMotion } from "../sequence/prefersReducedMotion";
 import { useNearViewport } from "../sequence/useNearViewport";
-import { ASPECT, DESKTOP_COUNT, MOBILE_COUNT } from "../iceFrames";
+import { ASPECT, DESKTOP_COUNT } from "../iceFrames";
 import type { Copy } from "../data/copy";
 
 /**
@@ -36,9 +36,10 @@ export default function IceCreamStory({ copy, booted }: { copy: Copy; booted: bo
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const headlineRef = useRef<HTMLElement>(null);
-  const headlineInnerRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLSpanElement>(null);
+  const painterRef = useRef<FrameCanvas | null>(null);
+  const redrawRef = useRef<(() => void) | null>(null);
 
   const reduced = prefersReducedMotion;
 
@@ -58,20 +59,20 @@ export default function IceCreamStory({ copy, booted }: { copy: Copy; booted: bo
   const near = useNearViewport(sectionRef, !reduced);
   const started = !reduced && booted && near;
 
-  const load = useFrameLoader(started,
-    { dir: "icecream", desktopCount: DESKTOP_COUNT, mobileCount: MOBILE_COUNT });
-  const ready = load.status === "ready";
+  const load = useFrameLoader(started, ICE_FRAMES);
+  const usable = load.status === "usable" || load.status === "ready";
+  const frames = load.frames;
 
   useEffect(() => {
-    if (!ready || reduced) return;
+    if (!usable || reduced) return;
     const section = sectionRef.current;
     const stage = stageRef.current;
     const canvas = canvasRef.current;
     if (!section || !stage || !canvas) return;
 
-    const frames = load.frames;
     const painter = new FrameCanvas(canvas);
-    painter.setFrames(frames);
+    painter.setFrames(frames, load.loaded);
+    painterRef.current = painter;
 
     // desktop-space frame index -> this variant's own index space. Simpler than
     // the burger's version: there is no per-frame geometry table to borrow a
@@ -81,14 +82,16 @@ export default function IceCreamStory({ copy, booted }: { copy: Copy; booted: bo
 
     /** measured on resize, never inside the scrub — see BurgerStory for why */
     const m: Metrics = { boxW: 0, boxH: 0 };
-    const measure = () => {
-      painter.resize();
+    // the first measure is synchronous — apply(0) below needs the geometry now;
+    // every later one is coalesced into a frame by the painter
+    const measure = (immediate = false) => {
+      if (immediate) painter.resizeNow(); else painter.resize();
       const rect = canvas.getBoundingClientRect();
       const scale = Math.min(rect.width / ASPECT, rect.height);
       m.boxH = scale;
       m.boxW = scale * ASPECT;
     };
-    measure();
+    measure(true);
 
     /** progress 0..SPIN_END -> frame 0..last, then held on the last frame */
     const positionFor = (p: number) => {
@@ -103,61 +106,82 @@ export default function IceCreamStory({ copy, booted }: { copy: Copy; booted: bo
     };
     apply(0);
 
+    let cancelled = false;
+    let teardown = () => {};
+
     /**
+     * GSAP arrives in its own chunk — see scrollConfig. This section is below
+     * the fold and gated on `booted` besides, so it is always already there.
+     *
      * One timeline, every tween declares both ends — see BurgerStory's note on
      * why a second tween touching the same property is what breaks scrolling
      * back up: it stops GSAP being able to reverse the property exactly.
      */
-    const tl = gsap.timeline({
-      scrollTrigger: {
-        trigger: section,
-        start: "top top",
-        end: "bottom bottom",
-        pin: stage,
-        pinSpacing: false,
-        scrub: 0.6,
-        onUpdate: (self) => apply(self.progress),
-        onRefresh: measure,
-      },
+    void loadScrollKit().then(({ gsap }) => {
+      if (cancelled) return;
+
+      const tl = gsap.timeline({
+        scrollTrigger: {
+          trigger: section,
+          start: "top top",
+          end: "bottom bottom",
+          pin: stage,
+          pinSpacing: false,
+          scrub: 0.6,
+          onUpdate: (self) => apply(self.progress),
+          onRefresh: () => measure(),
+          // see BurgerStory: will-change only while the stage is actually moving
+          onToggle: (self) => stage.classList.toggle("is-live", self.isActive),
+        },
+      });
+
+      tl.fromTo(headlineRef.current,
+        { autoAlpha: 1, y: 0 },
+        { autoAlpha: 0, y: -46, ease: "none", duration: 0.3 }, 0);
+
+      tl.fromTo(titleRef.current,
+        { autoAlpha: 0, y: 24 },
+        { autoAlpha: 1, y: 0, ease: "none", duration: 0.14 }, SPIN_END - 0.14);
+
+      tl.set({}, {}, 1);
+
+      const trigger = tl.scrollTrigger!;
+      redrawRef.current = () => apply(trigger.progress);
+
+      const onResize = () => {
+        measure();
+        // after the painter's own coalesced resize, which was queued first
+        requestAnimationFrame(() => apply(trigger.progress));
+      };
+      // not a raw resize listener: on a phone the address bar fires one on every
+      // change of scroll direction, and measure() reads layout
+      const stopWatchingViewport = onViewportChange(onResize);
+      document.fonts?.ready.then(onResize).catch(() => {});
+
+      teardown = () => {
+        stopWatchingViewport();
+        trigger.kill();
+        redrawRef.current = null;
+      };
     });
 
-    tl.fromTo(headlineRef.current,
-      { autoAlpha: 1, y: 0 },
-      { autoAlpha: 0, y: -46, ease: "none", duration: 0.3 }, 0);
-
-    tl.fromTo(titleRef.current,
-      { autoAlpha: 0, y: 24 },
-      { autoAlpha: 1, y: 0, ease: "none", duration: 0.14 }, SPIN_END - 0.14);
-
-    tl.set({}, {}, 1);
-
-    const trigger = tl.scrollTrigger!;
-
-    const onResize = () => {
-      measure();
-      apply(trigger.progress);
-    };
-    // not a raw resize listener: on a phone the address bar fires one on every
-    // change of scroll direction, and measure() reads layout
-    const stopWatchingViewport = onViewportChange(onResize);
-    document.fonts?.ready.then(onResize).catch(() => {});
-
     return () => {
-      stopWatchingViewport();
-      trigger.kill();
+      cancelled = true;
+      teardown();
+      painter.dispose();
+      painterRef.current = null;
     };
-  }, [ready, reduced, load]);
+    // `load.loaded` deliberately absent — see BurgerStory
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usable, reduced, frames]);
 
-  /** the entrance, on a child element — see BurgerStory for why not the parent */
+  /** the tail of the sequence arriving: no new trigger, just a wider clamp */
   useEffect(() => {
-    if (!ready || reduced) return;
-    const inner = headlineInnerRef.current;
-    if (!inner) return;
-    const tween = gsap.fromTo(inner,
-      { autoAlpha: 0, y: 22 },
-      { autoAlpha: 1, y: 0, duration: 0.9, ease: "power2.out" });
-    return () => { tween.kill(); gsap.set(inner, { clearProps: "all" }); };
-  }, [ready, reduced]);
+    const painter = painterRef.current;
+    if (!painter) return;
+    painter.setAvailable(load.loaded);
+    redrawRef.current?.();
+  }, [load.loaded]);
 
   if (reduced || load.status === "unsupported") {
     return (
@@ -190,7 +214,7 @@ export default function IceCreamStory({ copy, booted }: { copy: Copy; booted: bo
         <div className="story-halo story-halo-ice" aria-hidden="true" />
 
         <header className="story-headline" ref={headlineRef}>
-          <div ref={headlineInnerRef}>
+          <div className="story-intro">
             <p className="eyebrow"><span /> {copy.iceEyebrow}</p>
             <h1>{copy.iceHeadline[0]}<br />{copy.iceHeadline[1]}</h1>
             <p className="lede">{copy.iceIntro}</p>
@@ -206,7 +230,7 @@ export default function IceCreamStory({ copy, booted }: { copy: Copy; booted: bo
           <canvas ref={canvasRef} role="img" aria-label={copy.iceAria} />
         </div>
 
-        {started && load.status === "loading" && (
+        {started && load.status === "waiting" && (
           <div className="story-loading" role="status">
             <span className="story-loading-bar">
               <span style={{ transform: `scaleX(${load.progress})` }} />

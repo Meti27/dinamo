@@ -1,29 +1,49 @@
 /**
- * Registers ScrollTrigger and configures it for mobile, once.
+ * Loads GSAP and ScrollTrigger on demand, registers the plugin and configures
+ * it for mobile — once, however many callers ask.
  *
- * `ignoreMobileResize` is the important part. On a phone the address bar
- * sliding in and out fires a window resize, and a resize makes ScrollTrigger
- * recalculate every trigger's start and end — while the user is mid-scroll,
- * on the main thread, with two pinned sections on the page. That is a
- * refresh cascade caused by nothing the page actually did, and it is the
- * classic reason a pinned scroll site feels fine on a desktop and drops
- * frames on a phone.
+ * Why on demand: GSAP and ScrollTrigger are about a third of the JavaScript
+ * this page ships, and nothing on the first screen needs either of them. The
+ * first screen is a headline and one frame of a canvas; the pinned scrubbing
+ * cannot start until the frames are decoded anyway. Static imports put all of it
+ * in front of the first paint, which is the largest-contentful-paint element.
+ * A dynamic import lets the headline paint while GSAP is still arriving.
  *
- * The flag tells ScrollTrigger to ignore a resize that only changed the
- * viewport height on a touch device, which is exactly the address bar case
- * and nothing else. A real orientation change still refreshes.
- *
- * Both stories import this for its side effect rather than calling
- * registerPlugin themselves, so the configuration cannot be applied twice or
- * be missed by one of them.
+ * `ignoreMobileResize` is the important part of the configuration. On a phone
+ * the address bar sliding in and out fires a window resize, and a resize makes
+ * ScrollTrigger recalculate every trigger's start and end — while the user is
+ * mid-scroll, on the main thread, with two pinned sections on the page. That is
+ * a refresh cascade caused by nothing the page actually did, and it is the
+ * classic reason a pinned scroll site feels fine on a desktop and drops frames
+ * on a phone. The flag tells ScrollTrigger to ignore a resize that only changed
+ * the viewport height on a touch device, which is exactly the address bar case.
+ * A real orientation change still refreshes.
  */
 
-import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
+type Gsap = (typeof import("gsap"))["default"];
+type ScrollTriggerStatic = (typeof import("gsap/ScrollTrigger"))["ScrollTrigger"];
 
-gsap.registerPlugin(ScrollTrigger);
+export type ScrollKit = {
+  readonly gsap: Gsap;
+  readonly ScrollTrigger: ScrollTriggerStatic;
+};
 
-ScrollTrigger.config({ ignoreMobileResize: true });
+let pending: Promise<ScrollKit> | null = null;
+
+export function loadScrollKit(): Promise<ScrollKit> {
+  pending ??= (async () => {
+    const [core, plugin] = await Promise.all([
+      import("gsap"),
+      import("gsap/ScrollTrigger"),
+    ]);
+    const gsap = core.default;
+    const { ScrollTrigger } = plugin;
+    gsap.registerPlugin(ScrollTrigger);
+    ScrollTrigger.config({ ignoreMobileResize: true });
+    return { gsap, ScrollTrigger };
+  })();
+  return pending;
+}
 
 /**
  * Hand *touch* scrolling to GSAP, and keep the coast short.
@@ -48,8 +68,13 @@ ScrollTrigger.config({ ignoreMobileResize: true });
  * travels is set by its velocity either way; this only bounds how long the
  * page keeps moving once you let go.
  */
-export function enableNormalizedScroll() {
+export async function enableNormalizedScroll() {
+  const { ScrollTrigger } = await loadScrollKit();
   ScrollTrigger.normalizeScroll({ type: "touch", momentum: 0.65 });
 }
 
-export { ScrollTrigger };
+/** re-measure every trigger — the triggers may have been measured while locked */
+export async function refreshScrollTriggers() {
+  const { ScrollTrigger } = await loadScrollKit();
+  ScrollTrigger.refresh();
+}

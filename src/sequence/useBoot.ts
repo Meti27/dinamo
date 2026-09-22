@@ -1,14 +1,20 @@
 /**
- * Holds the page still until the first sequence is ready to run.
+ * Holds the page still until the first screen can actually be scrolled.
  *
- * The brief is that nothing should ever be seen half-loaded. Until now each
- * story fetched its own frames and showed a small bar inside its own stage,
- * which meant the page was scrollable while the burger was still decoding —
- * and scrolling into a sequence that has no frames yet is exactly the
- * half-loaded state the bar was there to avoid.
+ * It used to wait for every frame of the burger sequence. That is why the
+ * headline — the largest thing on the first screen, and so the element
+ * largest-contentful-paint is measured on — arrived about two seconds after the
+ * first paint: twenty AVIF fetches and decodes stood between the page being
+ * painted and the page being shown.
  *
- * So scrolling is locked from the first paint and released once the burger
- * frames are decoded and the fonts have loaded. Two details matter:
+ * What the first screen actually needs is frame 0, the fonts it is set in, and
+ * ScrollTrigger, so that the pin exists before the visitor can scroll into it.
+ * The rest of the sequence keeps arriving behind the released page, and
+ * `FrameCanvas` clamps a scrub to the frames that have decoded, so scrolling
+ * early shows the last real frame rather than a hole. On a connection slow
+ * enough for that to be visible, the loader is still on screen anyway.
+ *
+ * Two details in the lock itself matter:
  *
  *  - `scrollRestoration` is set to manual and the page is scrolled to the top.
  *    A reload otherwise restores the previous offset, which fights the lock and
@@ -23,7 +29,8 @@
 
 import { useEffect, useLayoutEffect, useState } from "react";
 
-import { ScrollTrigger, enableNormalizedScroll } from "./scrollConfig";
+import { prefersReducedMotion } from "./prefersReducedMotion";
+import { enableNormalizedScroll, loadScrollKit, refreshScrollTriggers } from "./scrollConfig";
 
 /** matches the fade in .preloader — long enough to read as a fade, not a cut */
 const FADE_MS = 420;
@@ -48,9 +55,32 @@ function useFontsReady(): boolean {
   return loaded;
 }
 
-export function useBoot(framesSettled: boolean): Boot {
+/**
+ * Resolves when GSAP and ScrollTrigger have arrived.
+ *
+ * Part of the gate because the page must not be scrollable before the pins
+ * exist: without this the story section would scroll like an ordinary tall
+ * section for as long as the chunk took to load.
+ *
+ * Under reduced motion there is no pinning, no scrub and no trigger at all —
+ * both stories render their stills — so the chunk is never requested.
+ */
+function useScrollKitReady(): boolean {
+  const [loaded, setLoaded] = useState(prefersReducedMotion);
+  useEffect(() => {
+    if (prefersReducedMotion) return;
+    let live = true;
+    loadScrollKit().then(() => { if (live) setLoaded(true); })
+      .catch(() => { if (live) setLoaded(true); });
+    return () => { live = false; };
+  }, []);
+  return loaded;
+}
+
+export function useBoot(firstFrameSettled: boolean): Boot {
   const fontsReady = useFontsReady();
-  const ready = framesSettled && fontsReady;
+  const scrollReady = useScrollKitReady();
+  const ready = firstFrameSettled && fontsReady && scrollReady;
   const [dismissed, setDismissed] = useState(false);
 
   // before the first paint, so there is no frame in which the page can scroll
@@ -84,9 +114,8 @@ export function useBoot(framesSettled: boolean): Boot {
     const body = document.body;
     html.style.overflow = "";
     body.style.overflow = "";
-    // the triggers may have been measured while the page was locked
-    ScrollTrigger.refresh();
-    enableNormalizedScroll();
+    if (prefersReducedMotion) return;
+    void refreshScrollTriggers().then(enableNormalizedScroll);
   }, [dismissed]);
 
   return { ready, dismissed };

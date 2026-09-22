@@ -1,8 +1,7 @@
 import { useEffect, useRef } from "react";
-import gsap from "gsap";
 
-import "../sequence/scrollConfig";
 import { FrameCanvas } from "../sequence/FrameCanvas";
+import { loadScrollKit } from "../sequence/scrollConfig";
 import type { LoadState } from "../sequence/useFrameLoader";
 import { onViewportChange } from "../sequence/onViewportChange";
 import { prefersReducedMotion } from "../sequence/prefersReducedMotion";
@@ -43,36 +42,44 @@ type Metrics = {
 /**
  * The frames arrive as a prop rather than being fetched here: they are what the
  * preloader waits on, so App owns the load and this renders whatever state it
- * is in. The three branches below are unchanged — ready, reduced, unsupported.
+ * is in.
+ *
+ * It starts as soon as frame 0 has decoded ("usable"), not when the whole
+ * sequence has. The painter is told how much of the array is real and clamps a
+ * scrub to that, so the only difference an early start makes is that a very fast
+ * scroll on a very slow connection can sit on a held frame for a moment.
  */
 export default function BurgerStory({ copy, load }: { copy: Copy; load: LoadState }) {
   const sectionRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const headlineRef = useRef<HTMLElement>(null);
-  const headlineInnerRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
   const stepRef = useRef<HTMLParagraphElement>(null);
   const progressRef = useRef<HTMLSpanElement>(null);
   const labelRefs = useRef<(HTMLDivElement | null)[]>([]);
+  /** so the effect that follows the load can reach the running painter */
+  const painterRef = useRef<FrameCanvas | null>(null);
+  const redrawRef = useRef<(() => void) | null>(null);
 
   const reduced = prefersReducedMotion;
-  const ready = load.status === "ready";
+  const usable = load.status === "usable" || load.status === "ready";
+  const frames = load.frames;
 
   const steps = [copy.scrollOpen, copy.ingredientsStep, copy.assembling, copy.menuBelow];
   const stepsRef = useRef(steps);
   stepsRef.current = steps;
 
   useEffect(() => {
-    if (!ready || reduced) return;
+    if (!usable || reduced) return;
     const section = sectionRef.current;
     const stage = stageRef.current;
     const canvas = canvasRef.current;
     if (!section || !stage || !canvas) return;
 
-    const frames = load.frames;
     const painter = new FrameCanvas(canvas);
-    painter.setFrames(frames);
+    painter.setFrames(frames, load.loaded);
+    painterRef.current = painter;
 
     // desktop-space frame index -> this variant's own index space
     const mobile = frames.length === MOBILE_MAP.length;
@@ -89,8 +96,11 @@ export default function BurgerStory({ copy, load }: { copy: Copy; load: LoadStat
       edgePinned: false, labelW: [], labelH: [],
     };
 
-    const measure = () => {
-      painter.resize();
+    const measure = (immediate = false) => {
+      // the first measure has to be synchronous: there is nothing on screen yet
+      // to hold steady, and apply(0) below needs the geometry now. Every later
+      // one is coalesced into a frame by the painter.
+      if (immediate) painter.resizeNow(); else painter.resize();
       const rect = canvas.getBoundingClientRect();
       m.stageW = stage.offsetWidth;
       m.edgePinned = window.matchMedia(EDGE_PINNED).matches;
@@ -106,7 +116,7 @@ export default function BurgerStory({ copy, load }: { copy: Copy; load: LoadStat
         m.labelH[i] = node?.offsetHeight ?? 0;
       }
     };
-    measure();
+    measure(true);
 
     /** progress 0..1 -> position in the sequence, opening then holding then closing */
     const positionFor = (p: number) => {
@@ -175,84 +185,104 @@ export default function BurgerStory({ copy, load }: { copy: Copy; load: LoadStat
     let shownStep = -1;
     apply(0);
 
+    let cancelled = false;
+    let teardown = () => {};
+
     /**
-     * One timeline on the pinning trigger, and every tween declares both ends.
-     *
-     * Two separate tweens touching the same property is what broke scrolling
-     * back up: the headline had a one-shot entrance animating opacity and y, and
-     * a second scroll-driven tween animating the same two. Reversing the scrub
-     * restored the values GSAP had recorded for the *entrance*, so the headline
-     * came back at opacity 0 and never reappeared. A single timeline of `fromTo`
-     * tweens has nothing to record and reverses exactly.
-     *
-     * The entrance is on a child element for the same reason — nothing else may
-     * animate what the scrub owns.
+     * GSAP arrives in its own chunk, so everything below waits for it. Nothing
+     * here can be reached before the boot gate releases, and the gate waits for
+     * the same promise — see useBoot.
      */
-    const tl = gsap.timeline({
-      scrollTrigger: {
-        trigger: section,
-        start: "top top",
-        end: "bottom bottom",
-        pin: stage,
-        pinSpacing: false,
-        // GSAP's scrub is already time-based and frame-rate independent. Do not
-        // add a speed cap on top: capping is what makes the picture carry on
-        // after the hand has stopped, which reads as lag rather than smoothness.
-        scrub: 0.6,
-        onUpdate: (self) => apply(self.progress),
-        onRefresh: measure,
-      },
+    void loadScrollKit().then(({ gsap }) => {
+      if (cancelled) return;
+
+      /**
+       * One timeline on the pinning trigger, and every tween declares both ends.
+       *
+       * Two separate tweens touching the same property is what broke scrolling
+       * back up: the headline had a one-shot entrance animating opacity and y,
+       * and a second scroll-driven tween animating the same two. Reversing the
+       * scrub restored the values GSAP had recorded for the *entrance*, so the
+       * headline came back at opacity 0 and never reappeared. A single timeline
+       * of `fromTo` tweens has nothing to record and reverses exactly. The
+       * entrance is a CSS animation on a child for the same reason — nothing
+       * else may animate what the scrub owns.
+       */
+      const tl = gsap.timeline({
+        scrollTrigger: {
+          trigger: section,
+          start: "top top",
+          end: "bottom bottom",
+          pin: stage,
+          pinSpacing: false,
+          // GSAP's scrub is already time-based and frame-rate independent. Do not
+          // add a speed cap on top: capping is what makes the picture carry on
+          // after the hand has stopped, which reads as lag rather than smoothness.
+          scrub: 0.6,
+          onUpdate: (self) => apply(self.progress),
+          onRefresh: () => measure(),
+          // will-change is a promise to the compositor to keep a layer around,
+          // so it is worth making only while the thing is actually moving. This
+          // stage has seven such elements and is on screen for one screen in ten.
+          onToggle: (self) => stage.classList.toggle("is-live", self.isActive),
+        },
+      });
+
+      tl.fromTo(headlineRef.current,
+        { autoAlpha: 1, y: 0 },
+        { autoAlpha: 0, y: -46, ease: "none", duration: OPEN_END * 0.6 }, 0);
+
+      tl.fromTo(titleRef.current,
+        { autoAlpha: 0, y: 24 },
+        { autoAlpha: 1, y: 0, ease: "none", duration: 0.14 }, OPEN_END - 0.14);
+
+      tl.fromTo(titleRef.current,
+        { autoAlpha: 1 },
+        { autoAlpha: 0, ease: "none", duration: 0.1 }, HOLD_END);
+
+      // pad the timeline to a total duration of 1 so the positions above read as
+      // fractions of the pinned scroll rather than of whatever the tweens sum to
+      tl.set({}, {}, 1);
+
+      const trigger = tl.scrollTrigger!;
+      redrawRef.current = () => apply(trigger.progress);
+
+      const onResize = () => {
+        measure();
+        // after the painter's own coalesced resize, which was queued first
+        requestAnimationFrame(() => apply(trigger.progress));
+      };
+      // not a raw resize listener: on a phone the address bar fires one on every
+      // change of scroll direction, and measure() reads layout
+      const stopWatchingViewport = onViewportChange(onResize);
+      document.fonts?.ready.then(onResize).catch(() => {});
+
+      teardown = () => {
+        stopWatchingViewport();
+        trigger.kill();
+        redrawRef.current = null;
+      };
     });
 
-    tl.fromTo(headlineRef.current,
-      { autoAlpha: 1, y: 0 },
-      { autoAlpha: 0, y: -46, ease: "none", duration: OPEN_END * 0.6 }, 0);
-
-    tl.fromTo(titleRef.current,
-      { autoAlpha: 0, y: 24 },
-      { autoAlpha: 1, y: 0, ease: "none", duration: 0.14 }, OPEN_END - 0.14);
-
-    tl.fromTo(titleRef.current,
-      { autoAlpha: 1 },
-      { autoAlpha: 0, ease: "none", duration: 0.1 }, HOLD_END);
-
-    // pad the timeline to a total duration of 1 so the positions above read as
-    // fractions of the pinned scroll rather than of whatever the tweens sum to
-    tl.set({}, {}, 1);
-
-    const trigger = tl.scrollTrigger!;
-
-    const onResize = () => {
-      measure();
-      apply(trigger.progress);
-    };
-    // not a raw resize listener: on a phone the address bar fires one on every
-    // change of scroll direction, and measure() reads layout
-    const stopWatchingViewport = onViewportChange(onResize);
-    document.fonts?.ready.then(onResize).catch(() => {});
-
     return () => {
-      stopWatchingViewport();
-      trigger.kill();
+      cancelled = true;
+      teardown();
+      painter.dispose();
+      painterRef.current = null;
     };
-  }, [ready, reduced, load]);
+    // `load.loaded` deliberately absent: it changes as the tail of the sequence
+    // arrives, and rebuilding the pin for that would be a refresh cascade. The
+    // effect below hands the new count to the painter instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usable, reduced, frames]);
 
-  /**
-   * The entrance, on a child of the element the scrub owns.
-   *
-   * Kept off `.story-headline` deliberately: that element's opacity and y belong
-   * to the scroll timeline, and a second tween on the same properties is exactly
-   * what stopped the headline coming back when you scrolled up.
-   */
+  /** the tail of the sequence arriving: no new trigger, just a wider clamp */
   useEffect(() => {
-    if (!ready || reduced) return;
-    const inner = headlineInnerRef.current;
-    if (!inner) return;
-    const tween = gsap.fromTo(inner,
-      { autoAlpha: 0, y: 22 },
-      { autoAlpha: 1, y: 0, duration: 0.9, ease: "power2.out" });
-    return () => { tween.kill(); gsap.set(inner, { clearProps: "all" }); };
-  }, [ready, reduced]);
+    const painter = painterRef.current;
+    if (!painter) return;
+    painter.setAvailable(load.loaded);
+    redrawRef.current?.();
+  }, [load.loaded]);
 
   if (reduced || load.status === "unsupported") {
     return (
@@ -285,7 +315,7 @@ export default function BurgerStory({ copy, load }: { copy: Copy; load: LoadStat
         <div className="story-halo" aria-hidden="true" />
 
         <header className="story-headline" ref={headlineRef}>
-          <div ref={headlineInnerRef}>
+          <div className="story-intro">
             <p className="eyebrow"><span /> {copy.open}</p>
             <h1>{copy.headline[0]}<br />{copy.headline[1]}</h1>
             <p className="lede">{copy.intro}</p>

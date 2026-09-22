@@ -7,23 +7,18 @@ import Location from "./components/Location";
 import Menu from "./components/Menu";
 import Nav from "./components/Nav";
 import Preloader from "./components/Preloader";
-import { DESKTOP_COUNT, MOBILE_COUNT } from "./frames";
 import { prefersReducedMotion } from "./sequence/prefersReducedMotion";
+import { BURGER_FRAMES } from "./sequence/sequences";
 import { useBoot } from "./sequence/useBoot";
-import { useFrameLoader, type FrameSource } from "./sequence/useFrameLoader";
+import { useFrameLoader } from "./sequence/useFrameLoader";
 import { translations, type Lang } from "./data/copy";
 
 /**
  * The burger frames are loaded here rather than inside BurgerStory, because
  * they are what the preloader is waiting for: they are the first thing on the
- * screen, and the page stays locked until they are decoded. The ice cream
- * sequence still loads itself, later and on its own terms — see IceCreamStory.
+ * screen. The gate is frame 0, not the whole sequence — see useBoot. The ice
+ * cream sequence still loads itself, later and on its own terms.
  */
-const BURGER_FRAMES: FrameSource = {
-  dir: "frames",
-  desktopCount: DESKTOP_COUNT,
-  mobileCount: MOBILE_COUNT,
-};
 
 /** read once during initial state, so there is no setState inside an effect */
 function savedLang(): Lang {
@@ -42,8 +37,8 @@ export default function App() {
   const burger = useFrameLoader(!reduced, BURGER_FRAMES);
   // "settled" rather than "ready": a device with no AVIF support resolves to
   // `unsupported` and shows the stills, which is a finished boot too
-  const framesSettled = reduced || burger.status !== "loading";
-  const boot = useBoot(framesSettled);
+  const firstFrameSettled = reduced || burger.status !== "waiting";
+  const boot = useBoot(firstFrameSettled);
 
   useEffect(() => {
     document.documentElement.lang = lang;
@@ -54,7 +49,7 @@ export default function App() {
     <>
       {!boot.dismissed && (
         <Preloader
-          progress={burger.status === "loading" ? burger.progress : 1}
+          progress={burger.status === "ready" ? 1 : burger.progress}
           label={copy.loading}
           done={boot.ready}
         />
