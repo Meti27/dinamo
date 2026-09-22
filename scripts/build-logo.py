@@ -5,7 +5,13 @@ Cut the Dinamo crest out of the source photo into a square, transparent logo.
     python3 scripts/build-logo.py
 
 Reads  public/dinamo.jpg   (840x630, the crest on a mottled blue backdrop)
-Writes public/dinamo-logo.webp, public/dinamo-logo.avif
+Writes public/dinamo-logo.webp, public/dinamo-logo.avif          (512x512)
+       public/dinamo-logo-128.webp, public/dinamo-logo-128.avif  (128x128)
+
+Two sizes because the crest is used at two scales that are nothing like each
+other: 220 CSS px in the location panel, and 44 and 36 px in the nav and footer.
+The nav one is on the critical path and was being served the 512px file, which is
+five times the pixels it can show.
 
 The source is 4:3 with a photographic background, which is why the site used to
 render it as an ellipse: a non-square image under `border-radius: 50%` is an
@@ -28,7 +34,9 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "public/dinamo.jpg")
 OUT = os.path.join(ROOT, "public/dinamo-logo")
-SIZE = 512
+# 512 for the location panel at 220 CSS px; 128 for the nav at 44 and the footer
+# at 36, which covers those at any device pixel ratio a phone actually has
+SIZES = (512, 128)
 FEATHER = 1.5   # px of edge softening, so the rim is not aliased
 
 
@@ -65,21 +73,24 @@ def main():
     alpha = np.clip((r - dist) / FEATHER + 0.5, 0, 1)
 
     rgba = np.dstack([crop.astype(np.uint8), (alpha * 255).astype(np.uint8)])
-    png = OUT + ".png"
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba",
-                    "-s", f"{n}x{n}", "-i", "pipe:0",
-                    "-vf", f"scale={SIZE}:{SIZE}:flags=lanczos", "-update", "1", png],
-                   input=rgba.tobytes(), check=True)
-    subprocess.run(["avifenc", "-y", "444", "-q", "62", "--qalpha", "70", "-s", "6",
-                    "-j", "all", png, OUT + ".avif"],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", png, "-c:v", "libwebp",
-                    "-quality", "86", "-compression_level", "6", "-update", "1",
-                    OUT + ".webp"], check=True)
-    os.remove(png)
-    for ext in ("avif", "webp"):
-        print(f"  wrote public/dinamo-logo.{ext} "
-              f"({os.path.getsize(OUT + '.' + ext) / 1024:.0f} KB, {SIZE}x{SIZE})")
+    for size in SIZES:
+        stem = OUT if size == max(SIZES) else f"{OUT}-{size}"
+        png = stem + ".png"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba",
+                        "-s", f"{n}x{n}", "-i", "pipe:0",
+                        "-vf", f"scale={size}:{size}:flags=lanczos", "-update", "1", png],
+                       input=rgba.tobytes(), check=True)
+        subprocess.run(["avifenc", "-y", "444", "-q", "62", "--qalpha", "70", "-s", "6",
+                        "-j", "all", png, stem + ".avif"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", png, "-c:v", "libwebp",
+                        "-quality", "86", "-compression_level", "6", "-update", "1",
+                        stem + ".webp"], check=True)
+        os.remove(png)
+        for ext in ("avif", "webp"):
+            path = stem + "." + ext
+            print(f"  wrote {os.path.relpath(path, ROOT)} "
+                  f"({os.path.getsize(path) / 1024:.0f} KB, {size}x{size})")
 
 
 if __name__ == "__main__":

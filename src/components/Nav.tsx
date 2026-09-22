@@ -18,7 +18,7 @@ export default function Nav({ copy, lang, onLang }: {
   return (
     <nav className={scrolled ? "nav scrolled" : "nav"}>
       <a className="brand" href="#top" aria-label="Dinamo">
-        <Logo size={44} />
+        <Logo size={44} priority />
         <span>DINAMO</span>
       </a>
       <div className="nav-links">
